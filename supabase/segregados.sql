@@ -18,16 +18,21 @@ create table if not exists public.seg_docs (
 );
 
 -- ---------- Papel de cada pessoa neste sistema ----------
--- Admin do QC é admin aqui. Quem não está nesta tabela só consulta.
+-- Admin do QC é admin aqui. Quem não está nesta tabela só consulta. 'blocked' = sem acesso a este sistema (o QC continua).
 create table if not exists public.seg_papeis (
   id    uuid primary key references auth.users(id) on delete cascade,
-  papel text not null check (papel in ('operator', 'viewer'))
+  papel text not null check (papel in ('operator', 'viewer', 'blocked'))
 );
+
+create or replace function public.seg_bloqueado() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.seg_papeis where id = auth.uid() and papel = 'blocked');
+$$;
 
 create or replace function public.seg_pode_editar() returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.is_admin()
-      or exists (select 1 from public.seg_papeis where id = auth.uid() and papel = 'operator');
+  select not public.seg_bloqueado() and (public.is_admin()
+      or exists (select 1 from public.seg_papeis where id = auth.uid() and papel = 'operator'));
 $$;
 
 create or replace function public.seg_marcar() returns trigger
@@ -47,7 +52,7 @@ create trigger seg_docs_atualizado
 alter table public.seg_docs enable row level security;
 drop policy if exists "seg_docs: logados leem" on public.seg_docs;
 create policy "seg_docs: logados leem" on public.seg_docs
-  for select to authenticated using (true);
+  for select to authenticated using (not public.seg_bloqueado());
 drop policy if exists "seg_docs: editores inserem" on public.seg_docs;
 create policy "seg_docs: editores inserem" on public.seg_docs
   for insert to authenticated with check (public.seg_pode_editar());
@@ -118,8 +123,8 @@ revoke all on public.seg_docs, public.seg_papeis, public.seg_senha from anon;
 revoke all on public.seg_senha from authenticated;
 grant select, insert, update, delete on public.seg_docs   to authenticated;
 grant select, insert, update, delete on public.seg_papeis to authenticated;
-revoke execute on function public.seg_pode_editar(), public.seg_senha_definida(), public.seg_senha_conferir(text), public.seg_senha_definir(text), public.seg_uso() from anon, public;
-grant execute on function public.seg_pode_editar(), public.seg_senha_definida(), public.seg_senha_conferir(text), public.seg_senha_definir(text), public.seg_uso() to authenticated;
+revoke execute on function public.seg_bloqueado(), public.seg_pode_editar(), public.seg_senha_definida(), public.seg_senha_conferir(text), public.seg_senha_definir(text), public.seg_uso() from anon, public;
+grant execute on function public.seg_bloqueado(), public.seg_pode_editar(), public.seg_senha_definida(), public.seg_senha_conferir(text), public.seg_senha_definir(text), public.seg_uso() to authenticated;
 
 -- ---------- Tempo real ----------
 do $$
