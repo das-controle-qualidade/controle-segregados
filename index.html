@@ -320,6 +320,7 @@ td .row-actions{display:flex;gap:6px;justify-content:flex-end}
 .vchart[style*="--vb"] .vb-bar{background:linear-gradient(180deg,var(--vb),color-mix(in srgb,var(--vb) 65%,#000))}
 .vb-v{font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;margin-bottom:2px;line-height:1}
 .vchart.dense .vb-v{writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;margin-bottom:3px}
+.ask-ov{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}.ask-ov .modal-card{max-width:480px;width:100%}
 </style>
 </head>
 <body>
@@ -1767,6 +1768,11 @@ const I18N_ADD9={
 };
 for(const l in I18N_ADD9)Object.assign(I18N[l],I18N_ADD9[l]);
 </script>
+<script>
+/* ===== Texto: Produtos passa a se chamar Custo dos Produtos ===== */
+const I18N_ADD10={"pt-BR": {"navProducts": "Custo dos Produtos"}, "en": {"navProducts": "Product Costs"}, "es": {"navProducts": "Costo de Productos"}, "fr": {"navProducts": "Coût des produits"}, "de": {"navProducts": "Produktkosten"}, "it": {"navProducts": "Costo dei prodotti"}, "nl": {"navProducts": "Productkosten"}, "pl": {"navProducts": "Koszt produktów"}, "ru": {"navProducts": "Стоимость продуктов"}, "uk": {"navProducts": "Вартість продуктів"}, "tr": {"navProducts": "Ürün maliyetleri"}, "ar": {"navProducts": "تكلفة المنتجات"}, "hi": {"navProducts": "उत्पाद लागत"}, "bn": {"navProducts": "পণ্যের খরচ"}, "zh-CN": {"navProducts": "产品成本"}, "ja": {"navProducts": "製品コスト"}, "ko": {"navProducts": "제품 비용"}, "id": {"navProducts": "Biaya Produk"}, "vi": {"navProducts": "Chi phí sản phẩm"}, "th": {"navProducts": "ต้นทุนสินค้า"}};
+for(const l in I18N_ADD10)Object.assign(I18N[l],I18N_ADD10[l]);
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
 <script>
 'use strict';
@@ -1846,12 +1852,14 @@ function adminUsers(body){return sb.functions.invoke('admin-usuarios',{body}).th
 const setPapel=(id,papel)=>sb.from('seg_papeis').upsert({id,papel}).then(sbOk);
 function peopleCard(){if(!CLOUD.peopleLoaded){CLOUD.peopleLoaded=true;peopleLoad().then(()=>{if(route().name==='admin')renderAdmin()}).catch(e=>{console.warn(e);toast(t('cloudLoadErr'),true)})}
   const opt=(p,v)=>`<option value="${v}" ${p.role===v?'selected':''}>${esc(roleLabel(v))}</option>`;
-  return `<div class="card"><h3>${esc(t('users'))}</h3><div class="table-wrap" style="margin-bottom:12px"><table><thead><tr><th>${esc(t('cloudEmail'))}</th><th>${esc(t('name'))}</th><th>${esc(t('role'))}</th><th></th></tr></thead><tbody>${CLOUD.people.map(p=>`<tr style="${p.role==='blocked'?'opacity:.65':''}"><td>${esc(p.email)}</td><td>${esc(p.nome)}</td><td>${p.role==='admin'?esc(roleLabel('admin')):`<select data-prole="${p.id}">${opt(p,'operator')}${opt(p,'viewer')}${opt(p,'blocked')}</select>`}</td><td><div class="row-actions"><button class="btn btn-sm" data-ppw="${p.id}">🔑 ${esc(t('uPass'))}</button>${p.id===currentUser.id||p.role==='blocked'?'':`<button class="btn btn-sm btn-danger" data-prm="${p.id}">${esc(t('remove'))}</button>`}</div></td></tr>`).join('')}</tbody></table></div>
+  const row=p=>`<tr style="${p.role==='blocked'?'opacity:.65':''}"><td>${esc(p.email)}</td><td>${esc(p.nome)}</td><td>${p.role==='admin'?esc(roleLabel('admin')):`<select data-prole="${p.id}">${opt(p,'operator')}${opt(p,'viewer')}${opt(p,'blocked')}</select>`}</td><td><div class="row-actions"><button class="btn btn-sm" data-ppw="${p.id}">🔑 ${esc(t('uPass'))}</button>${p.id===currentUser.id||p.role==='blocked'?'':`<button class="btn btn-sm btn-danger" data-prm="${p.id}">${esc(t('remove'))}</button>`}</div></td></tr>`,head=`<thead><tr><th>${esc(t('cloudEmail'))}</th><th>${esc(t('name'))}</th><th>${esc(t('role'))}</th><th></th></tr></thead>`,off=CLOUD.people.filter(p=>p.role==='blocked');
+  return `<div class="card" style="grid-column:1/-1"><h3>${esc(t('users'))}</h3><div class="table-wrap" style="margin-bottom:12px"><table>${head}<tbody>${CLOUD.people.filter(p=>p.role!=='blocked').map(row).join('')}</tbody></table></div>
+   ${off.length?`<details style="margin-bottom:12px"><summary class="note" style="cursor:pointer;font-weight:600">${esc(t('uBlocked'))} (${off.length})</summary><div class="table-wrap" style="margin-top:8px"><table>${head}<tbody>${off.map(row).join('')}</tbody></table></div></details>`:''}
    <form class="inline-add" id="pAdd"><input name="nome" placeholder="${esc(t('name'))}" required><input name="email" type="email" placeholder="${esc(t('cloudEmail'))}" required autocomplete="off"><input name="senha" type="password" minlength="8" placeholder="${esc(t('password'))}" required autocomplete="new-password"><select name="papel"><option value="operator">${esc(roleLabel('operator'))}</option><option value="viewer">${esc(roleLabel('viewer'))}</option></select><button class="btn btn-primary">${esc(t('addUser'))}</button></form>
    <p class="hint">${esc(t('cloudUsersNote'))}</p></div>`}
 function bindPeople(){const reload=async()=>{await peopleLoad();renderAdmin()};
   $$('[data-prole]').forEach(s=>s.onchange=async()=>{try{await setPapel(s.dataset.prole,s.value);await reload();toast(t('savedOk'))}catch(e){console.warn(e);toast(t('cloudSaveErr'),true)}});
-  $$('#view [data-prm]').forEach(b=>b.onclick=async()=>{const p=CLOUD.people.find(x=>x.id===b.dataset.prm);if(!p||!confirm(t('uRemoveAsk',{u:p.nome||p.email})))return;try{await setPapel(p.id,'blocked');await reload();toast(t('uRemoved'))}catch(e){console.warn(e);toast(t('cloudSaveErr'),true)}});
+  $$('#view [data-prm]').forEach(b=>b.onclick=async()=>{const p=CLOUD.people.find(x=>x.id===b.dataset.prm);if(!p||!await askYes(t('uRemoveAsk',{u:p.nome||p.email})))return;try{await setPapel(p.id,'blocked');await reload();toast(t('uRemoved'))}catch(e){console.warn(e);toast(t('cloudSaveErr'),true)}});
   $$('[data-ppw]').forEach(b=>b.onclick=()=>{const p=CLOUD.people.find(x=>x.id===b.dataset.ppw);if(p)passModal(p.nome||p.email,t('uPassQc'),async v=>{await adminUsers({acao:'senha',id:p.id,senha:v});toast(t('uPassOk'))})});
   const f=$('#pAdd');if(f)f.onsubmit=async e=>{e.preventDefault();const btn=$('button',f);btn.disabled=true;try{const r=await adminUsers({acao:'criar',email:f.email.value.trim(),senha:f.senha.value,nome:f.nome.value.trim(),papel:'user'});await setPapel(r.id,f.papel.value);await reload();toast(t('uAdded'))}catch(err){toast(err.message||t('cloudSaveErr'),true);btn.disabled=false}}}
 </script>
@@ -1982,6 +1990,11 @@ function openModal(html,wide){const m=$('#modal');m.innerHTML=`<div class="modal
 function closeModal(){const m=$('#modal');m.hidden=true;m.innerHTML='';document.body.style.overflow='';document.body.classList.remove('print-modal')}
 $('#modal').addEventListener('mousedown',e=>{if(e.target.id==='modal')closeModal()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('#lightbox').hidden)$('#lightbox').hidden=true;else if(!$('#modal').hidden)closeModal()}});
+function askBox(msg,input){return new Promise(res=>{const d=document.createElement('div');d.className='ask-ov';
+  d.innerHTML=`<form class="modal-card" role="alertdialog" aria-modal="true"><div class="modal-body" style="white-space:pre-line">${esc(msg)}${input?'<textarea name="v" rows="3" maxlength="300" style="width:100%;margin-top:10px"></textarea>':''}</div><div class="modal-foot"><span style="flex:1"></span><button type="button" class="btn" data-n>${esc(t('cancel'))}</button><button class="btn btn-primary">OK</button></div></form>`;
+  document.body.appendChild(d);const f=$('form',d),end=v=>{d.remove();document.removeEventListener('keydown',esc2,true);res(v)},esc2=e=>{if(e.key==='Escape'){e.stopPropagation();end(input?null:false)}};
+  document.addEventListener('keydown',esc2,true);$('[data-n]',d).onclick=()=>end(input?null:false);f.onsubmit=e=>{e.preventDefault();end(input?f.v.value:true)};(input?f.v:$('.btn-primary',d)).focus()})}
+const askYes=msg=>askBox(msg,false),askText=msg=>askBox(msg,true);
 function lightbox(src){const lb=$('#lightbox');$('img',lb).src=src;lb.hidden=false}
 $('#lightbox').onclick=()=>$('#lightbox').hidden=true;
 
@@ -2004,7 +2017,7 @@ const ICONS={
  dashboard:'<path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 3v6h8V3z"/>',
  new:'<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
  history:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 3"/>',
- products:'<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/>',
+ products:'<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M14.5 9.8c-.4-.8-1.3-1.2-2.5-1.2-1.4 0-2.5.7-2.5 1.7s1.1 1.4 2.5 1.7 2.5.7 2.5 1.7-1.1 1.7-2.5 1.7c-1.2 0-2.1-.5-2.5-1.2M12 7.6v8.8M5.5 12h.01M18.5 12h.01"/>',
  costs:'<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2c-1.4 0-2.5-.6-3-1.5M12 6v2M12 16v2"/>',
  data:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
  admin:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'};
@@ -2020,7 +2033,7 @@ function renderShell(){
   $('#whoName').textContent=currentUser.name;$('#whoRole').textContent=roleLabel(currentUser.role);
   $('#brandCompany').textContent=state.settings.company||'';
   $('#bannerText').textContent=ONLINE?t('onlineBanner'):t('offlineBanner')+(storageOK?'':' — '+t('storageError'));
-  $('#viewTitle').textContent=r.name==='new'&&r.arg?t('formEdit'):t(ROUTES[r.name][0]);
+  $('#viewTitle').textContent=(r.name==='products'?'💵 ':'')+(r.name==='new'&&r.arg?t('formEdit'):t(ROUTES[r.name][0]));
   ROUTES[r.name][1](r.arg);
 }
 const demoBadge=o=>o&&o.demo?` <span class="badge" title="${esc(t('demoDataNote'))}">${esc(t('demoBadge'))}</span>`:'';
@@ -2225,7 +2238,7 @@ function renderForm(editId){
     if(typed!=null&&!(typed>=0)){toast(t('costInvalid'),true);return}
     rec.costManual=false;rec.planCost=null;
     if(typed!=null&&typed!==auto){rec.planCost=auto;rec.unitCost=typed;rec.costId=null;rec.costFrom=null;rec.costManual=true;rec.totalCost=round2(qty*typed)}
-    if(!hasCost(rec)&&!confirm(t('saveNoCost')))return;
+    if(!hasCost(rec)&&!await askYes(t('saveNoCost')))return;
     /* o que foi digitado e ainda não existe entra no cadastro para as próximas vezes */
     const added=[];
     if(!prodOf(code)){state.products.push({id:uid(),code,model,weight:null,active:true,demo:false});added.push(t('code')+' '+code)}
@@ -2377,7 +2390,7 @@ function showDetail(id){
   $$('[data-big]').forEach(f=>f.onclick=()=>{const p=o.photos.find(p=>p.id===f.dataset.big);if(p)lightbox(p.data)});
   $('#dEdit').onclick=()=>closeModal();
   $('#dPrint').onclick=()=>{document.body.classList.add('print-modal');window.print();setTimeout(()=>document.body.classList.remove('print-modal'),300)};
-  if($('#dDel'))$('#dDel').onclick=async()=>{if(isLocked(o.date)){toast(t('lockedSave'),true);return}if(!confirm(t('confirmDelete')))return;if(lockedReason(o.date))authLogAdd({act:'del',per:o.date.slice(0,7),seq:o.seq,changes:[]});state.occurrences=state.occurrences.filter(x=>x.id!==o.id);await persist();closeModal();toast(t('deletedMsg'));renderShell()};
+  if($('#dDel'))$('#dDel').onclick=async()=>{if(isLocked(o.date)){toast(t('lockedSave'),true);return}if(!await askYes(t('confirmDelete')))return;if(lockedReason(o.date))authLogAdd({act:'del',per:o.date.slice(0,7),seq:o.seq,changes:[]});state.occurrences=state.occurrences.filter(x=>x.id!==o.id);await persist();closeModal();toast(t('deletedMsg'));renderShell()};
 }
 
 /* Produtos: atualizações de custo por mês (planilhas do RH com a cotação do dólar informada) */
@@ -2385,7 +2398,7 @@ async function removeMonthCosts(k){if(!isAdmin())return;const from=k+'-01',end=t
   const rm=state.costs.filter(c=>c.from>=from&&c.from<=end);if(!rm.length)return;const ids=new Set(rm.map(c=>c.id)),impIds=new Set(rm.map(c=>c.importId));
   const occ=state.occurrences.filter(o=>ids.has(o.costId)),lk=occ.filter(o=>occLocked(o.date));
   if(lk.length){toast(t('rmLocked',{n:lk.length}),true);return}
-  if(!confirm(t('rmAsk',{m:ymLabel(k),n:rm.length,o:occ.length})))return;
+  if(!await askYes(t('rmAsk',{m:ymLabel(k),n:rm.length,o:occ.length})))return;
   state.costs=state.costs.filter(c=>!ids.has(c.id));state.costs.forEach(c=>{if(c.superseded&&impIds.has(c.superseded.by))delete c.superseded});
   state.costImports=state.costImports.filter(i=>!(impIds.has(i.id)&&!state.costs.some(c=>c.importId===i.id))&&!(i.kind==='dollar'&&i.from===from));
   occ.forEach(o=>{const c=costAt(o.code,o.date);if(c)applyPrice(c,[o]);else{o.unitCost=null;o.costId=null;o.costFrom=null;o.totalCost=null;o.updatedAt=new Date().toISOString()}});
@@ -2530,7 +2543,7 @@ function renderProducts(){
   $$('[data-pimpm]').forEach(i=>i.onchange=e=>{const f=e.target.files[0];if(f)loadCostFile(f,i.dataset.pimpm)});$$('[data-ptpl]').forEach(b=>b.onclick=downloadTemplate);$$('[data-prm]').forEach(b=>b.onclick=()=>removeMonthCosts(b.dataset.prm));
   if($('#pTpl')){$('#pTpl').onclick=downloadTemplate;$('#pImp').onchange=e=>{const f=e.target.files[0];if(f)loadCostFile(f)}}
   $$('[data-pedit]').forEach(b=>b.onclick=()=>productModal(state.products.find(p=>p.id===b.dataset.pedit)));
-  $$('[data-pdel]').forEach(b=>b.onclick=async()=>{const p=state.products.find(p=>p.id===b.dataset.pdel);if(!p||!confirm(t('removeConfirm')))return;
+  $$('[data-pdel]').forEach(b=>b.onclick=async()=>{const p=state.products.find(p=>p.id===b.dataset.pdel);if(!p||!await askYes(t('removeConfirm')))return;
     if(count(p.code)){p.active=false;toast(t('productInUse'))}else state.products=state.products.filter(x=>x!==p);await persist();renderProducts()});
 }
 function productModal(p){
@@ -2586,18 +2599,18 @@ function renderAdmin(){
   if(ONLINE)bindPeople();else $('#uAdd').onsubmit=e=>{e.preventDefault();const f=e.target,u=f.username.value.trim();if(state.users.some(x=>x.username.toLowerCase()===u.toLowerCase())){toast(t('dupUser'),true);return}
     state.users.push({id:uid(),username:u,name:f.name.value.trim(),password:f.password.value,role:f.role.value});save()};
   $$('[data-upw]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.dataset.upw);passModal(u.name,'',async v=>{u.password=v;await persist();toast(t('uPassOk'))})});
-  $$('[data-urm]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.dataset.urm);if(u.role==='admin'&&state.users.filter(x=>x.role==='admin').length<=1){toast(t('lastAdmin'),true);return}
-    if(!confirm(t('removeConfirm')))return;state.users=state.users.filter(x=>x!==u);if(u.id===currentUser.id){save();$('#logoutBtn').click();return}save()});
+  $$('[data-urm]').forEach(b=>b.onclick=async()=>{const u=state.users.find(x=>x.id===b.dataset.urm);if(u.role==='admin'&&state.users.filter(x=>x.role==='admin').length<=1){toast(t('lastAdmin'),true);return}
+    if(!await askYes(t('removeConfirm')))return;state.users=state.users.filter(x=>x!==u);if(u.id===currentUser.id){save();$('#logoutBtn').click();return}save()});
   $('#sForm').onsubmit=e=>{e.preventDefault();state.settings.company=e.target.company.value.trim();state.settings.currency=e.target.currency.value;save()};
   $('#cAdd').onsubmit=e=>{e.preventDefault();const n=e.target.name.value.trim();if(!n)return;state.clients.push({id:uid(),name:n,type:e.target.type.value,demo:false});save()};
-  $$('[data-crm]').forEach(b=>b.onclick=()=>{if(!confirm(t('removeConfirm')))return;state.clients=state.clients.filter(c=>c.id!==b.dataset.crm);save()});
+  $$('[data-crm]').forEach(b=>b.onclick=async()=>{if(!await askYes(t('removeConfirm')))return;state.clients=state.clients.filter(c=>c.id!==b.dataset.crm);save()});
   $$('[data-add]').forEach(f=>f.onsubmit=e=>{e.preventDefault();const v=f.v.value.trim(),k=f.dataset.add;if(v&&!state[k].includes(v)){state[k].push(v);save()}});
-  $$('[data-rm]').forEach(b=>b.onclick=()=>{if(!confirm(t('removeConfirm')))return;state[b.dataset.rm].splice(+b.dataset.i,1);save()});
-  $('#bRmDemo').onclick=()=>{if(!confirm(t('removeDemoConfirm')))return;const demoProblems=buildDemoProblems();
+  $$('[data-rm]').forEach(b=>b.onclick=async()=>{if(!await askYes(t('removeConfirm')))return;state[b.dataset.rm].splice(+b.dataset.i,1);save()});
+  $('#bRmDemo').onclick=async()=>{if(!await askYes(t('removeDemoConfirm')))return;const demoProblems=buildDemoProblems();
     state.occurrences=state.occurrences.filter(o=>!o.demo);state.products=state.products.filter(p=>!p.demo);state.clients=state.clients.filter(c=>!c.demo);
     state.problems=state.problems.filter(p=>!demoProblems.includes(p)||state.occurrences.some(o=>o.problem===p));state.costs=state.costs.filter(c=>!c.demo);state.costImports=state.costImports.filter(i=>!i.demo);save()};
-  $('#bDemo').onclick=()=>{if(!confirm(t('resetConfirm')))return;const users=state.users,settings=state.settings;state=buildDemoState();state.users=users;state.settings=settings;save()};
-  $('#bClear').onclick=()=>{if(!confirm(t('clearConfirm')))return;state=emptyState(true);save()};
+  $('#bDemo').onclick=async()=>{if(!await askYes(t('resetConfirm')))return;const users=state.users,settings=state.settings;state=buildDemoState();state.users=users;state.settings=settings;save()};
+  $('#bClear').onclick=async()=>{if(!await askYes(t('clearConfirm')))return;state=emptyState(true);save()};
 }
 /* ================= DADOS & BACKUP =================
    Online: limites do plano grátis do Supabase (500 MB de banco, 1 GB de fotos), divididos com o QC.
@@ -2676,7 +2689,7 @@ async function exportBackup(){const btn=$('#bExp');if(btn)btn.disabled=true;toas
     state.settings.ultimoBackup={em:new Date().toISOString(),por:currentUser.name};await persist();renderShell()}catch(e){console.warn(e);toast(t('importErr'),true);if(btn)btn.disabled=false}}
 async function importBackup(e){const file=e.target.files[0];if(!file)return;try{const j=JSON.parse(await file.text());const s=j.state||j;
     if(!s||!Array.isArray(s.occurrences)||!Array.isArray(s.products)||!Array.isArray(s.users)||!s.users.length)throw 0;
-    if(!confirm(t('importConfirm')))return;
+    if(!await askYes(t('importConfirm')))return;
     state=Object.assign(emptyState(true),s,{settings:Object.assign({company:'',currency:'BRL'},s.settings)});
     ['clients','problems','destinations'].forEach(k=>{if(!Array.isArray(state[k]))state[k]=[]});
     state.occurrences.forEach(o=>{if(!Array.isArray(o.photos))o.photos=[]});state=migrate(state);
@@ -2846,7 +2859,7 @@ async function confirmImport(){const ci=ui.ci,an=ci&&ci.an,sh=ci&&ci.sheets[ci.s
   if(!items.length){toast(t('impNone'),true);return}
   if(an.dupSame.length){toast(t('impDup'),true);return}
   if(ci.recalc&&!ci.reason.trim()){toast(t('reasonReq'),true);return}
-  if(!confirm(t('impAsk',{n:items.length,d:fmtDate(ci.vig)})+(ci.recalc?'\n\n'+t('impAskRetro'):'')))return;
+  if(!await askYes(t('impAsk',{n:items.length,d:fmtDate(ci.vig)})+(ci.recalc?'\n\n'+t('impAskRetro'):'')))return;
   const at=new Date().toISOString(),imp={id:uid(),at,user:currentUser.name,file:ci.name,sheet:sh.name,hash:ci.hash,from:ci.vig,rows:an.total,dollar:+String(ci.dollar).replace(',','.')>0?Math.round(+String(ci.dollar).replace(',','.')*10000)/10000:null,inserted:0,updated:0,same:0,ignored,filled:0,recalc:0,invalid:an.inval.slice(0,300),choices:Object.assign({},ci.choice),demo:false};
   if(ci.newProducts)an.items.forEach(it=>{if(!state.products.some(p=>normCode(p.code)===it.code)){state.products.push({id:uid(),code:it.code,model:it.model||it.code,weight:null,active:true,demo:false});imp.newProducts=(imp.newProducts||0)+1}});
   items.forEach(it=>{let c=it.ex;
@@ -2953,11 +2966,11 @@ async function costAct(a,arg){
   else if(a==='see')seeRecords(arg);
   else if(a==='exp')exportReport();
   else if(a==='print')window.print();
-  else if(a==='closeM'){const R=ui.lastRep;if(!R||!canEdit())return;const yy=+arg.slice(0,4),mm=+arg.slice(5,7),miss=[1,2,3,4].filter(w=>!weekLaunched(yy,mm,w));if(miss.length&&!confirm(t('weeksMissing',{w:miss.map(w=>t('weekOfMonth',{n:w})).join(', ')})))return;if(!confirm(t('mCloseAsk',{m:ymLabel(arg),n:fmtNum(R.a.n),q:fmtNum(R.a.ng),c:fmtMoney(R.a.cost)})+(R.a.noCost?'\n\n'+t('noCostWarn',{n:R.a.noCost,q:R.a.ngNoCost}):'')))return;
+  else if(a==='closeM'){const R=ui.lastRep;if(!R||!canEdit())return;const yy=+arg.slice(0,4),mm=+arg.slice(5,7),miss=[1,2,3,4].filter(w=>!weekLaunched(yy,mm,w));if(miss.length&&!await askYes(t('weeksMissing',{w:miss.map(w=>t('weekOfMonth',{n:w})).join(', ')})))return;if(!await askYes(t('mCloseAsk',{m:ymLabel(arg),n:fmtNum(R.a.n),q:fmtNum(R.a.ng),c:fmtMoney(R.a.cost)})+(R.a.noCost?'\n\n'+t('noCostWarn',{n:R.a.noCost,q:R.a.ngNoCost}):'')))return;
     const at=new Date().toISOString(),tot={n:R.a.n,ng:R.a.ng,cost:R.a.cost,noCost:R.a.noCost};state.closures[arg]={status:'closed',totals:tot,by:currentUser.name,at};state.closureLog.unshift({id:uid(),per:arg,act:'close',user:currentUser.name,at,totals:tot});await persist();toast(t('savedOk'));renderCosts()}
-  else if(a==='reopen'){if(!isAdmin())return;const why=prompt(t('reopenAsk'));if(why===null)return;if(!why.trim()){toast(t('reasonReq'),true);return}const at=new Date().toISOString();Object.assign(state.closures[arg],{status:'open',by:currentUser.name,at});state.closureLog.unshift({id:uid(),per:arg,act:'reopen',user:currentUser.name,at,reason:why.trim()});await persist();toast(t('savedOk'));renderCosts()}
+  else if(a==='reopen'){if(!isAdmin())return;const why=await askText(t('reopenAsk'));if(why===null)return;if(!why.trim()){toast(t('reasonReq'),true);return}const at=new Date().toISOString();Object.assign(state.closures[arg],{status:'open',by:currentUser.name,at});state.closureLog.unshift({id:uid(),per:arg,act:'reopen',user:currentUser.name,at,reason:why.trim()});await persist();toast(t('savedOk'));renderCosts()}
   else if(a==='fillRange'){const [s,e]=arg.split('|'),l=state.occurrences.filter(o=>o.date>=s&&o.date<=e&&!hasCost(o)&&!occLocked(o.date));let n=0;
-    if(!confirm(t('fillAsk',{a:fmtDate(s),b:fmtDate(e)})))return;
+    if(!await askYes(t('fillAsk',{a:fmtDate(s),b:fmtDate(e)})))return;
     l.forEach(o=>{const c=costAt(o.code,o.date);if(c){applyPrice(c,[o]);n++}});if(n)logCost({type:'fill',code:'*',from:s,count:n,reason:t('reasonFill')});await persist();toast(t('fillDone',{n}));renderCosts()}}
 
 /* ================= INICIALIZAÇÃO ================= */
