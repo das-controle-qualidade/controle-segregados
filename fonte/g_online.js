@@ -46,13 +46,26 @@ function dataBlob(d){const i=d.indexOf(','),mime=(/^data:([^;,]+)/.exec(d)||[])[
 async function uploadPhotos(){for(const o of state.occurrences.concat(state.photoLib||[]))for(const p of o.photos||[])if(!p.path&&/^data:image\/[^;]+;base64,/.test(p.data||'')){const bl=dataBlob(p.data),path='seg/'+o.id+'-'+p.id+'.jpg';
     sbOk(await sb.storage.from('fotos').upload(path,bl,{upsert:true,contentType:bl.type}));p.path=path;p.size=bl.size}}
 const pathsOf=m=>{const out=new Set();m.forEach(d=>{if(d.col==='occurrences'||d.col==='photoLib')(d.dados.photos||[]).forEach(p=>{if(p.path)out.add(p.path)})});return out};
-async function cloudFlush(){await uploadPhotos();const docs=toDocs(state),up=[],del={};
+async function cloudFlush(){await uploadPhotos();let docs=toDocs(state);const up=[],del={};
   docs.forEach((d,k)=>{const old=CLOUD.snap.get(k);if(!old||old.j!==d.j)up.push({col:d.col,id:d.id,dados:d.dados,origem:CLOUD.session})});
   CLOUD.snap.forEach((d,k)=>{if(!docs.has(k))(del[d.col]=del[d.col]||[]).push(d.id)});
-  for(let i=0;i<up.length;i+=200)sbOk(await sb.from('seg_docs').upsert(up.slice(i,i+200)));
-  for(const c in del)for(let i=0;i<del[c].length;i+=100)sbOk(await sb.from('seg_docs').delete().eq('col',c).in('id',del[c].slice(i,i+100)));
-  const now=pathsOf(docs),gone=[...pathsOf(CLOUD.snap)].filter(p=>!now.has(p));CLOUD.snap=docs;
+  const bad=[],refused=e=>e&&/^(P0001|42501)$/.test(e.code||'');
+  for(let i=0;i<up.length;i+=200){const ch=up.slice(i,i+200),r=await sb.from('seg_docs').upsert(ch);if(!r.error)continue;if(!refused(r.error))throw r.error;
+    for(const x of ch){const r1=await sb.from('seg_docs').upsert(x);if(r1.error){if(!refused(r1.error))throw r1.error;bad.push({col:x.col,id:x.id,msg:r1.error.message})}}}
+  for(const c in del)for(let i=0;i<del[c].length;i+=100){const ids=del[c].slice(i,i+100),r=await sb.from('seg_docs').delete().eq('col',c).in('id',ids);if(!r.error)continue;if(!refused(r.error))throw r.error;
+    for(const id of ids){const r1=await sb.from('seg_docs').delete().eq('col',c).eq('id',id);if(r1.error){if(!refused(r1.error))throw r1.error;bad.push({col:c,id,msg:r1.error.message})}}}
+  if(bad.length){await cloudRevert(bad);toast(t('cloudRefused')+' '+bad[0].msg,true);docs=toDocs(state)}
+  const now=pathsOf(docs),gone=[...pathsOf(CLOUD.snap)].filter(p=>!now.has(p)&&!bad.length);CLOUD.snap=docs;
   if(gone.length)await sb.storage.from('fotos').remove(gone).catch(()=>{})}
+/* volta a cópia local de itens recusados pelo banco para a versão do servidor */
+async function cloudRevert(list){for(const b of list){const r=await sb.from('seg_docs').select('col,id,dados').eq('col',b.col).eq('id',b.id).maybeSingle();const row=r.data;
+  if(C_ARR.includes(b.col)){const a=state[b.col],i=a.findIndex(x=>String(x.id)===b.id);if(row){if(i>=0)a[i]=row.dados;else a.push(row.dados)}else if(i>=0)a.splice(i,1)}
+  else if(C_MAP.includes(b.col)){if(row)state[b.col][b.id]=row.dados;else delete state[b.col][b.id]}
+  else if(C_LIST.includes(b.col)){const i=state[b.col].indexOf(b.id);if(row&&i<0)state[b.col].push(b.id);if(!row&&i>=0)state[b.col].splice(i,1)}
+  else if(b.col==='settings'&&row)state.settings=Object.assign({},row.dados,{requireScalePhoto:false})}
+  await signPhotos(state.occurrences.concat(state.photoLib||[])).catch(()=>{})}
+/* registro feito pelo servidor (senha conferida lá) entra direto na cópia local */
+function cloudAddLog(d){if(!state.authLog.some(x=>x.id===d.id))state.authLog.unshift(d);CLOUD.snap.set('authLog|'+d.id,{col:'authLog',id:String(d.id),dados:d,j:JSON.stringify(d)})}
 let cloudChain=Promise.resolve();
 function cloudPersist(){cloudChain=cloudChain.then(cloudFlush).catch(e=>{console.warn(e);toast(t('cloudSaveErr'),true)});return cloudChain}
 /* mudanças feitas por outras pessoas chegam em tempo real */
@@ -90,7 +103,7 @@ function adminUsers(body){return sb.functions.invoke('admin-usuarios',{body}).th
 const setPapel=(id,papel)=>sb.from('seg_papeis').upsert({id,papel}).then(sbOk);
 function peopleCard(){if(!CLOUD.peopleLoaded){CLOUD.peopleLoaded=true;peopleLoad().then(()=>{if(route().name==='admin')renderAdmin()}).catch(e=>{console.warn(e);toast(t('cloudLoadErr'),true)})}
   const opt=(p,v)=>`<option value="${v}" ${p.role===v?'selected':''}>${esc(roleLabel(v))}</option>`;
-  const row=p=>`<tr style="${p.role==='blocked'?'opacity:.65':''}"><td>${esc(p.email)}</td><td>${esc(p.nome)}</td><td>${p.role==='admin'?esc(roleLabel('admin')):`<select data-prole="${p.id}">${opt(p,'operator')}${opt(p,'viewer')}${opt(p,'blocked')}</select>`}</td><td><div class="row-actions"><button class="btn btn-sm" data-ppw="${p.id}">🔑 ${esc(t('uPass'))}</button>${p.id===currentUser.id||p.role==='blocked'?'':`<button class="btn btn-sm btn-danger" data-prm="${p.id}">${esc(t('remove'))}</button>`}</div></td></tr>`,head=`<thead><tr><th>${esc(t('cloudEmail'))}</th><th>${esc(t('name'))}</th><th>${esc(t('role'))}</th><th></th></tr></thead>`,off=CLOUD.people.filter(p=>p.role==='blocked');
+  const row=p=>`<tr style="${p.role==='blocked'?'opacity:.65':''}"><td>${esc(p.email)}</td><td>${esc(p.nome)}</td><td>${p.role==='admin'?esc(roleLabel('admin')):`<select data-prole="${esc(p.id)}">${opt(p,'operator')}${opt(p,'viewer')}${opt(p,'blocked')}</select>`}</td><td><div class="row-actions"><button class="btn btn-sm" data-ppw="${esc(p.id)}">🔑 ${esc(t('uPass'))}</button>${p.id===currentUser.id||p.role==='blocked'?'':`<button class="btn btn-sm btn-danger" data-prm="${esc(p.id)}">${esc(t('remove'))}</button>`}</div></td></tr>`,head=`<thead><tr><th>${esc(t('cloudEmail'))}</th><th>${esc(t('name'))}</th><th>${esc(t('role'))}</th><th></th></tr></thead>`,off=CLOUD.people.filter(p=>p.role==='blocked');
   return `<div class="card" style="grid-column:1/-1"><h3>${esc(t('users'))}</h3><div class="table-wrap" style="margin-bottom:12px"><table>${head}<tbody>${CLOUD.people.filter(p=>p.role!=='blocked').map(row).join('')}</tbody></table></div>
    ${off.length?`<details open style="margin-bottom:12px"><summary class="note" style="cursor:pointer;font-weight:600">${esc(t('uBlocked'))} (${off.length})</summary><div class="table-wrap" style="margin-top:8px"><table>${head}<tbody>${off.map(row).join('')}</tbody></table></div></details>`:''}
    <form class="inline-add" id="pAdd"><input name="nome" placeholder="${esc(t('name'))}" required><input name="email" type="email" placeholder="${esc(t('cloudEmail'))}" required autocomplete="off"><input name="senha" type="password" minlength="8" placeholder="${esc(t('password'))}" required autocomplete="new-password"><select name="papel"><option value="operator">${esc(roleLabel('operator'))}</option><option value="viewer">${esc(roleLabel('viewer'))}</option></select><button class="btn btn-primary">${esc(t('addUser'))}</button></form>
