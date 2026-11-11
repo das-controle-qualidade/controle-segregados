@@ -86,7 +86,7 @@ function buildDemoState(){
 function emptyState(keepUsers){return {app:'segregados-prototipo',version:3,settings:Object.assign({company:'',currency:'BRL',requireScalePhoto:false,authPassword:DEMO_PASS},state?state.settings:{}),users:keepUsers&&state?state.users:buildDemoState().users,clients:[],problems:[],destinations:['Sucata'],products:[],occurrences:[],costs:[],costImports:[],costLog:[],closures:{},closureLog:[],weekDone:{},reopenCodes:[],authLog:[]}}
 /* completa dados salvos por versões anteriores; o custo do cadastro antigo vira o primeiro preço do histórico */
 function migrate(s){
-  ['costs','costImports','costLog','closureLog','clients','problems','destinations','products','occurrences'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[]});
+  ['costs','costImports','costLog','closureLog','clients','problems','destinations','products','occurrences','photoLib'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[]});
   if(!s.closures||typeof s.closures!=='object')s.closures={};
   if(!s.weekDone||typeof s.weekDone!=='object')s.weekDone={};if(!Array.isArray(s.reopenCodes))s.reopenCodes=[];
   if(Array.isArray(s.users)&&!s.users.some(u=>u.role==='viewer')&&s.users.some(u=>u.username==='admin'&&u.password==='admin123'))s.users.push({id:'u3',username:'lider',password:'lider123',name:'Líder / Analista (demo)',role:'viewer'});
@@ -210,7 +210,7 @@ function evoBuckets(){const d=parseISO(ui.ref),b=[];
 function niceMax(v){if(v<=0)return 1;const p=Math.pow(10,Math.floor(Math.log10(v)));const n=v/p;return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p}
 function vbars(items,fmt,fmtAxis,color,lbl){lbl=lbl||fmt;const max=niceMax(Math.max(0,...items.map(i=>i.value)));const step=Math.ceil(items.length/16);
   let grid='';for(let i=0;i<=4;i++){const v=max*i/4;grid+=`<div style="bottom:${i*25}%"><span>${esc(fmtAxis(v))}</span></div>`}
-  return `<div class="vchart ${items.length>18?'dense':''}" style="${color?'--vb:'+color:''}"><div class="vgrid">${grid}</div><div class="vbars">${items.map((it,i)=>`<div class="vb ${it.hl?'hl':''}" title="${esc(it.full+': '+fmt(it.value))}">${it.value?`<span class="vb-v">${esc(lbl(it.value))}</span>`:''}<div class="vb-bar" style="height:${(it.value/max*100).toFixed(2)}%"></div><span class="vb-x">${i%step===0?esc(it.label):''}</span></div>`).join('')}</div></div>`}
+  return `<div class="vchart ${items.length>18?'dense':''}" style="${color?'--vb:'+color:''}"><div class="vgrid">${grid}</div><div class="vbars">${items.map((it,i)=>`<div class="vb ${it.hl?'hl':''}" data-vi="${i}" title="${esc(it.full+': '+fmt(it.value))}">${it.value?`<span class="vb-v">${esc(lbl(it.value))}</span>`:''}<div class="vb-bar" style="height:${(it.value/max*100).toFixed(2)}%"></div><span class="vb-x">${i%step===0?esc(it.label):''}</span></div>`).join('')}</div></div>`}
 function hbars(items,fmt,sub,alt){if(!items.length)return `<div class="empty">${esc(t('noData'))}</div>`;const max=Math.max(...items.map(i=>i.value))||1;
   return `<div class="hbars">${items.map(it=>`<div class="hb ${alt?'alt':''}"><div class="hb-label" title="${esc(it.label)}">${esc(it.label)}</div><div class="hb-track"><div class="hb-fill" style="width:${(it.value/max*100).toFixed(1)}%"></div></div><div class="hb-val">${esc(fmt(it.value))}${sub?`<small>${esc(sub(it))}</small>`:''}</div></div>`).join('')}</div>`}
 function groupBy(list,keyFn){const m=new Map();for(const o of list){const k=keyFn(o);const g=m.get(k)||{key:k,occ:0,ng:0,cost:0};g.occ++;g.ng+=o.qty;g.cost+=+o.totalCost||0;m.set(k,g)}return [...m.values()]}
@@ -251,6 +251,7 @@ function renderDashboard(){
   const modelOf=c=>{const p=state.products.find(p=>p.code===c);if(p)return p.model;const o=list.find(o=>o.code===c);return o?o.model:''};
   const hasDemo=state.occurrences.some(o=>o.demo);
   const codesAll=[...new Set(state.occurrences.map(o=>normCode(o.code)))].sort(),modelsAll=[...new Set(state.occurrences.map(o=>o.model).filter(Boolean))].sort();
+  const lastD=nOcc?'':all.map(o=>o.date).filter(d=>d<r.s).sort().pop()||'';
   const pctOf=(a,b)=>b?(a>=b?'+':'')+fmtNum(round2((a-b)/b*100))+'%':'—';
   $('#view').innerHTML=`
   ${hasDemo?`<div class="note no-print" style="margin-bottom:12px"><span class="badge">${esc(t('demoBadge'))}</span> ${esc(t('demoDataNote'))}</div>`:''}
@@ -271,21 +272,22 @@ function renderDashboard(){
     <div class="card kpi vivid k3" data-kgo><div class="lbl">${esc(t('kpiCost'))}</div><div class="val">${fmtMoney(cost)}</div><div class="sub">${esc(noCost?t('kpiNoCostSub',{n:fmtNum(noCost)}):t('kpiCostSub'))}</div></div>
     <div class="card kpi vivid k4" data-kgo><div class="lbl">${esc(t('kpiAvg'))}</div><div class="val">${fmtMoney(nOcc?cost/nOcc:0)}</div><div class="sub">${esc(t('kpiAvgSub'))}</div></div>
   </div>
-  <div class="card" style="margin-bottom:16px"><h3>${esc(t('chEvolution'))}<span class="sp"></span>
+  ${lastD?`<div class="card no-print" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">📭 ${esc(t('dbEmpty',{d:fmtDate(lastD)}))}<button class="btn btn-sm btn-primary" data-golast="${lastD}">${esc(t('dbGoLast'))}</button></div>`:''}<p class="note no-print" style="margin:-6px 0 10px">🖱 ${esc(t('dbHint'))}</p>
+  <div class="card" style="margin-bottom:16px" data-dbl="day"><h3>${esc(t('chEvolution'))}<span class="sp"></span>
     <span class="seg">${[['ng','metricNg'],['occ','metricOcc'],['cost','metricCost']].map(([k,l])=>`<button data-evo="${k}" class="${ui.evo===k?'on':''}">${esc(t(l))}</button>`).join('')}</span></h3>
     ${vbars(buckets,evoFmt,evoAxis,{ng:'#dc2626',occ:'#2563eb',cost:'#ea580c'}[ui.evo],ui.evo==='cost'?evoAxis:evoFmt)}</div>
   <div class="grid g2" style="margin-bottom:16px">
-    <div class="card"><h3>${esc(t('ch1'))}</h3>${hbars(models.map(c=>({label:c.key||'—',value:c.ng,p:prevM[c.key]?prevM[c.key].ng:0})),v=>fmtNum(v)+' '+t('pieces'),i=>t('prevPeriodShort')+': '+fmtNum(i.p)+' ('+pctOf(i.value,i.p)+')')}<p class="hint">${esc(t('ch1Hint',{a:fmtDate(pr.s),b:fmtDate(pr.e)}))}</p></div>
-    <div class="card"><h3>${esc(t('ch2'))}</h3>${hbars(modelsOcc.map(c=>({label:c.key||'—',value:c.occ,ng:c.ng})),v=>fmtNum(v)+' '+t('occurrencesLower'),i=>fmtNum(i.ng)+' '+t('pieces'),true)}<p class="hint">${esc(t('ch2Hint'))}</p></div>
+    <div class="card" data-dbl="model"><h3>${esc(t('ch1'))}</h3>${hbars(models.map(c=>({label:c.key||'—',value:c.ng,p:prevM[c.key]?prevM[c.key].ng:0})),v=>fmtNum(v)+' '+t('pieces'),i=>t('prevPeriodShort')+': '+fmtNum(i.p)+' ('+pctOf(i.value,i.p)+')')}<p class="hint">${esc(t('ch1Hint',{a:fmtDate(pr.s),b:fmtDate(pr.e)}))}</p></div>
+    <div class="card" data-dbl="model"><h3>${esc(t('ch2'))}</h3>${hbars(modelsOcc.map(c=>({label:c.key||'—',value:c.occ,ng:c.ng})),v=>fmtNum(v)+' '+t('occurrencesLower'),i=>fmtNum(i.ng)+' '+t('pieces'),true)}<p class="hint">${esc(t('ch2Hint'))}</p></div>
   </div>
   <div class="card" style="margin-bottom:16px"><h3>${esc(t('ch3'))}</h3>${st.length?`<div class="table-wrap"><table><thead><tr><th>#</th><th>${esc(t('operator'))}</th><th class="num">${esc(t('stDays'))}</th><th class="num">${esc(t('stOcc'))}</th><th class="num">${esc(t('kpiNg'))}</th><th>${esc(t('stPeriod'))}</th><th class="num">${esc(t('stTotal'))}</th></tr></thead><tbody>${st.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.name)}</td><td class="num"><b>${fmtNum(x.len)}</b></td><td class="num">${fmtNum(x.n)}</td><td class="num">${fmtNum(x.q)}</td><td>${fmtDate(x.s)}${x.e!==x.s?' – '+fmtDate(x.e):''}</td><td class="num">${fmtNum(x.total)}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">${esc(t('stNone'))}</div>`}<p class="hint">${esc(t('ch3Hint'))}</p></div>
   <div class="grid g2" style="margin-bottom:16px">
-    <div class="card"><h3>${esc(t('chClients'))}</h3>${hbars(clients.map(c=>({label:c.key,value:c.ng,occ:c.occ,cost:c.cost})),v=>fmtNum(v)+' '+t('pieces'),i=>fmtNum(i.occ)+' '+t('occurrencesLower'))}</div>
-    <div class="card"><h3>${esc(t('chDefects'))}</h3>${hbars(defects.map(c=>({label:c.key,value:c.occ,ng:c.ng})),v=>fmtNum(v)+' '+t('occurrencesLower'),i=>fmtNum(i.ng)+' '+t('pieces'),true)}</div>
+    <div class="card" data-dbl="client"><h3>${esc(t('chClients'))}</h3>${hbars(clients.map(c=>({label:c.key,value:c.ng,occ:c.occ,cost:c.cost})),v=>fmtNum(v)+' '+t('pieces'),i=>fmtNum(i.occ)+' '+t('occurrencesLower'))}</div>
+    <div class="card" data-dbl="problem"><h3>${esc(t('chDefects'))}</h3>${hbars(defects.map(c=>({label:c.key,value:c.occ,ng:c.ng})),v=>fmtNum(v)+' '+t('occurrencesLower'),i=>fmtNum(i.ng)+' '+t('pieces'),true)}</div>
   </div>
   <div class="grid g2" style="margin-bottom:16px">
     <div class="card"><h3>${esc(t('chResp'))}</h3>${hbars(resp,fmtMoney,i=>fmtNum(i.ng)+' '+t('pieces')+' · '+fmtNum(i.occ)+' '+t('occurrencesLower'),true)}<p class="hint">${esc(t('respHint'))}</p></div>
-    <div class="card"><h3>${esc(t('topLoss'))}</h3>${hbars(groupBy(list.filter(hasCost),o=>o.model).sort((a,b)=>b.cost-a.cost).slice(0,8).map(c=>({label:c.key||'—',value:round2(c.cost),ng:c.ng})),fmtMoney,i=>fmtNum(i.ng)+' '+t('pieces'))}</div>
+    <div class="card" data-dbl="model"><h3>${esc(t('topLoss'))}</h3>${hbars(groupBy(list.filter(hasCost),o=>o.model).sort((a,b)=>b.cost-a.cost).slice(0,8).map(c=>({label:c.key||'—',value:round2(c.cost),ng:c.ng})),fmtMoney,i=>fmtNum(i.ng)+' '+t('pieces'))}</div>
   </div>
   <div class="card"><h3>${esc(t('chTable'))}</h3>
    ${prods.length?`<div class="table-wrap"><table><thead><tr><th>${esc(t('code'))}</th><th>${esc(t('model'))}</th><th class="num">${esc(t('kpiOcc'))}</th><th class="num">${esc(t('qtyNg'))}</th><th class="num">${esc(t('totalCost'))}</th></tr></thead>
@@ -294,6 +296,12 @@ function renderDashboard(){
   </div>`;
   $$('[data-period]').forEach(b=>b.onclick=()=>{ui.period=b.dataset.period;renderDashboard()});
   $$('[data-evo]').forEach(b=>b.onclick=()=>{ui.evo=b.dataset.evo;renderDashboard()});
+  $$('[data-golast]').forEach(b=>b.onclick=()=>{if(ui.period==='range')ui.period='month';ui.ref=b.dataset.golast;renderDashboard()});
+  ui.dash={all,list,buckets,r};
+  $$('[data-dbl]').forEach(card=>card.addEventListener('dblclick',e=>{const fld=card.dataset.dbl,D=ui.dash;let occ,lib,title;
+    if(fld==='day'){const b=e.target.closest('[data-vi]');if(!b)return;const k=D.buckets[+b.dataset.vi];occ=D.all.filter(o=>o.date>=k.s&&o.date<=k.e);lib=libList().filter(o=>o.date>=k.s&&o.date<=k.e);title=k.full}
+    else{const hb=e.target.closest('.hb');if(!hb)return;const key=hb.querySelector('.hb-label').getAttribute('title'),val=o=>key==='—'?!o[fld]:o[fld]===key;occ=D.list.filter(val);lib=fld==='client'?[]:libList().filter(o=>val(o)&&o.date>=D.r.s&&o.date<=D.r.e);title=key}
+    photosModal(title,occ,lib)}));
   $('#prevP').onclick=()=>{shiftRef(-1);renderDashboard()};$('#nextP').onclick=()=>{shiftRef(1);renderDashboard()};
   $('#todayP').onclick=()=>{ui.ref=todayISO();if(ui.period==='range'){const n=rangeDays();ui.rate=todayISO();ui.rde=toISO(addDays(parseISO(ui.rate),1-n))}renderDashboard()};
   if($('#refDate'))$('#refDate').onchange=e=>{if(e.target.value){ui.ref=e.target.value;renderDashboard()}};
@@ -455,35 +463,69 @@ function renderHistory(){
   $('#hcsv').onclick=()=>exportCsv(list);$('#hrep').onclick=()=>historyReport(list);
 }
 /* ================= FOTOS DOS PROBLEMAS =================
-   Reúne as fotos enviadas nas ocorrências; não guarda cópia, então excluir a ocorrência tira a foto daqui. */
-function renderPhotos(){const f=ui.ph||(ui.ph={q:'',ym:'',wk:0,code:'',model:'',problem:'',kind:'',page:1}),q=f.q.trim().toLowerCase(),per=48;
+   Junta as fotos das ocorrências e as da biblioteca (importadas em lote, já reduzidas para o tamanho padrão).
+   As da biblioteca guardam data, código, modelo e problema, mas não contam como peças NG nem custo. */
+const libList=()=>state.photoLib||(state.photoLib=[]);
+function photoItems(f){const q=(f.q||'').trim().toLowerCase(),wr=f.ym&&f.wk?weekRange(+f.ym.slice(0,4),+f.ym.slice(5,7),f.wk):null;
+  const ok=o=>(!f.ym||o.date.slice(0,7)===f.ym)&&(!wr||(o.date>=wr.s&&o.date<=wr.e))&&(!f.code||normCode(o.code)===f.code)&&(!f.model||o.model===f.model)&&(!f.problem||o.problem===f.problem)&&(!q||[o.seq,o.code,o.model,o.problem,o.client].join(' ').toLowerCase().includes(q));
+  const occ=f.src==='lib'?[]:state.occurrences.filter(ok),lib=f.src==='occ'?[]:libList().filter(ok),items=[];
+  occ.forEach(o=>(o.photos||[]).forEach(p=>{if(!f.kind||p.kind===f.kind)items.push({o,p,lib:false})}));if(!f.kind)lib.forEach(o=>(o.photos||[]).forEach(p=>items.push({o,p,lib:true})));
+  items.sort((a,b)=>b.o.date.localeCompare(a.o.date)||(b.o.seq||0)-(a.o.seq||0));return {occ,lib,items}}
+function renderPhotos(){const f=ui.ph||(ui.ph={q:'',ym:'',wk:0,code:'',model:'',problem:'',kind:'',src:'',view:'grid',page:1}),per=48;
   if(f.ym&&guardFrom(f.ym+'-01',renderPhotos))return;
-  const wr=f.ym&&f.wk?weekRange(+f.ym.slice(0,4),+f.ym.slice(5,7),f.wk):null;
-  const occ=state.occurrences.filter(o=>(!f.ym||o.date.slice(0,7)===f.ym)&&(!wr||(o.date>=wr.s&&o.date<=wr.e))&&(!f.code||normCode(o.code)===f.code)&&(!f.model||o.model===f.model)&&(!f.problem||o.problem===f.problem)&&(!q||[o.seq,o.code,o.model,o.problem,o.client].join(' ').toLowerCase().includes(q)));
-  const items=[];occ.forEach(o=>(o.photos||[]).forEach(p=>{if(!f.kind||p.kind===f.kind)items.push({o,p})}));items.sort((a,b)=>b.o.date.localeCompare(a.o.date)||b.o.seq-a.o.seq);
-  const withP=[...new Set(items.map(x=>x.o))],pages=Math.max(1,Math.ceil(items.length/per));if(f.page>pages)f.page=pages;const rows=items.slice((f.page-1)*per,f.page*per);
-  const opts=(vals,cur)=>[...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))).map(v=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('');
+  const {occ,items}=photoItems(f),withP=[...new Set(items.filter(x=>!x.lib).map(x=>x.o))],pages=Math.max(1,Math.ceil(items.length/per));if(f.page>pages)f.page=pages;const rows=items.slice((f.page-1)*per,f.page*per);
+  const all=state.occurrences.concat(libList()),opts=(vals,cur)=>[...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))).map(v=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('');
   const box=(l,v,s,c)=>`<div class="card kpi vivid ${c}"><div class="lbl">${esc(l)}</div><div class="val">${esc(v)}</div><div class="sub">${esc(s||'')}</div></div>`;
   const kinds={product:'photosProduct',defect:'photosDefect',scale:'photosScale'},fld=(l,h)=>`<div class="field" style="margin:0"><label>${esc(l)}</label>${h}</div>`;
-  $('#view').innerHTML=`<p class="note" style="margin:0 0 12px">${esc(t('phHelp'))} ${f.ym?'':lpNote()}</p>
-  <div class="grid g5" style="margin-bottom:16px">${box(t('phTotal'),fmtNum(items.length),'','k1')}${box(t('kpiNg'),fmtNum(sum(withP,'qty')),t('phNgSub'),'k2')}${box(t('phOcc'),fmtNum(withP.length),'','k4')}${box(t('phCodes'),fmtNum(new Set(withP.map(o=>normCode(o.code))).size),'','k5')}${box(t('phNoPhoto'),fmtNum(occ.filter(o=>!(o.photos||[]).length).length),'','k3')}</div>
-  <div class="card" style="margin-bottom:16px"><h3>${esc(t('phFilter'))}<span class="sp"></span><button class="btn btn-sm" id="phClear">${esc(t('phClear'))}</button></h3><div class="ph-filters">
+  const nLib=items.filter(x=>x.lib).length,badge=x=>x.lib?`<span class="badge blue">${esc(t('phLib'))}</span>`:`<span class="badge" style="background:#dc2626;color:#fff">${fmtNum(x.o.qty)} NG</span>`;
+  const act=(x,i)=>x.lib?(canEdit()?`<button class="btn btn-sm btn-danger" data-phdel="${x.o.id}">${esc(t('del'))}</button>`:''):`<button class="btn btn-sm" data-phv="${x.o.id}">${esc(t('phOpen'))}</button>`;
+  $('#view').innerHTML=`<div class="toolbar"><span class="note">${esc(t('phHelp'))} ${f.ym?'':lpNote()}</span><span class="sp"></span>${canEdit()?`<button class="btn btn-primary" id="phImp">📥 ${esc(t('phImport'))}</button>`:''}</div>
+  <div class="grid g5" style="margin-bottom:16px">${box(t('phTotal'),fmtNum(items.length),nLib?t('phLib')+': '+fmtNum(nLib):'','k1')}${box(t('kpiNg'),fmtNum(sum(withP,'qty')),t('phNgSub'),'k2')}${box(t('phOcc'),fmtNum(withP.length),'','k4')}${box(t('phCodes'),fmtNum(new Set(items.map(x=>normCode(x.o.code)).filter(Boolean)).size),'','k5')}${box(t('phNoPhoto'),fmtNum(occ.filter(o=>!(o.photos||[]).length).length),'','k3')}</div>
+  <div class="card" style="margin-bottom:16px"><h3>${esc(t('phFilter'))}<span class="sp"></span><span class="seg"><button data-phview="grid" class="${f.view!=='table'?'on':''}">▦ ${esc(t('phGrid'))}</button><button data-phview="table" class="${f.view==='table'?'on':''}">☰ ${esc(t('phTable'))}</button></span><button class="btn btn-sm" id="phClear">${esc(t('phClear'))}</button></h3><div class="ph-filters" style="grid-template-columns:2fr repeat(7,minmax(0,1fr))">
    ${fld(t('search'),`<input type="search" id="phQ" value="${esc(f.q)}" placeholder="${esc(t('phSearch'))}">`)}
    ${fld(t('periodMonth'),`<input type="month" data-ph="ym" value="${esc(f.ym)}">`)}
    ${fld(t('periodWeek'),`<select data-ph="wk" ${f.ym?'':'disabled'}><option value="0">${esc(t('all'))}</option>${[1,2,3,4].map(w=>`<option value="${w}" ${f.wk===w?'selected':''}>${esc(t('weekOfMonth',{n:w}))}</option>`).join('')}</select>`)}
-   ${fld(t('code'),`<select data-ph="code"><option value="">${esc(t('all'))}</option>${opts(state.occurrences.map(o=>normCode(o.code)),f.code)}</select>`)}
-   ${fld(t('model'),`<select data-ph="model"><option value="">${esc(t('all'))}</option>${opts(state.occurrences.map(o=>o.model),f.model)}</select>`)}
-   ${fld(t('problem'),`<select data-ph="problem"><option value="">${esc(t('all'))}</option>${opts(state.occurrences.map(o=>o.problem),f.problem)}</select>`)}
+   ${fld(t('code'),`<select data-ph="code"><option value="">${esc(t('all'))}</option>${opts(all.map(o=>normCode(o.code)),f.code)}</select>`)}
+   ${fld(t('model'),`<select data-ph="model"><option value="">${esc(t('all'))}</option>${opts(all.map(o=>o.model),f.model)}</select>`)}
+   ${fld(t('problem'),`<select data-ph="problem"><option value="">${esc(t('all'))}</option>${opts(all.map(o=>o.problem),f.problem)}</select>`)}
    ${fld(t('phKind'),`<select data-ph="kind"><option value="">${esc(t('all'))}</option>${Object.keys(kinds).map(k=>`<option value="${k}" ${f.kind===k?'selected':''}>${esc(t(kinds[k]))}</option>`).join('')}</select>`)}
+   ${fld(t('phSrc'),`<select data-ph="src"><option value="">${esc(t('all'))}</option><option value="occ" ${f.src==='occ'?'selected':''}>${esc(t('phSrcOcc'))}</option><option value="lib" ${f.src==='lib'?'selected':''}>${esc(t('phLib'))}</option></select>`)}
   </div></div>
-  ${rows.length?`<div class="ph-grid">${rows.map((x,i)=>`<div class="card ph-card"><img src="${esc(x.p.data||'')}" alt="${esc(x.o.code)}" loading="lazy" data-phz="${i}"><div class="ph-info"><b>${esc(x.o.code)}</b><span class="badge" style="background:#dc2626;color:#fff">${fmtNum(x.o.qty)} NG</span><div class="clip" title="${esc(x.o.model)}">${esc(x.o.model)}</div><div class="clip note" title="${esc(x.o.problem)}">${esc(x.o.problem)}</div><small class="note">${fmtDate(x.o.date)} · ${esc(t('weekOfMonth',{n:weekOfMonth(x.o.date)}))}</small><button class="btn btn-sm" data-phv="${x.o.id}">${esc(t('phOpen'))}</button></div></div>`).join('')}</div>
-  ${pages>1?`<div class="pager"><button class="btn btn-sm" id="phP" ${f.page<=1?'disabled':''}>‹</button><span class="note">${f.page} / ${pages}</span><button class="btn btn-sm" id="phN" ${f.page>=pages?'disabled':''}>›</button></div>`:''}`:`<div class="card empty">${esc(t('phNone'))}</div>`}`;
+  ${!rows.length?`<div class="card empty">${esc(t('phNone'))}</div>`:f.view==='table'?`<div class="card"><div class="table-wrap"><table><thead><tr><th>${esc(t('phFoto'))}</th><th>${esc(t('date'))}</th><th>${esc(t('periodWeek'))}</th><th>${esc(t('code'))}</th><th>${esc(t('model'))}</th><th>${esc(t('problem'))}</th><th class="num">${esc(t('qtyNg'))}</th><th>${esc(t('phSrc'))}</th><th></th></tr></thead><tbody>${rows.map((x,i)=>`<tr><td><img src="${esc(x.p.data||'')}" alt="" loading="lazy" data-phz="${i}" style="width:72px;height:54px;object-fit:cover;border-radius:6px;cursor:zoom-in;display:block"></td><td style="white-space:nowrap">${fmtDate(x.o.date)}</td><td style="white-space:nowrap">${esc(t('weekOfMonth',{n:weekOfMonth(x.o.date)}))}</td><td><b>${esc(x.o.code||'')}</b></td><td class="clip" title="${esc(x.o.model||'')}">${esc(x.o.model||'')}</td><td class="clip" title="${esc(x.o.problem||'')}">${esc(x.o.problem||'')}</td><td class="num">${x.lib?'—':fmtNum(x.o.qty)}</td><td>${badge(x)}</td><td>${act(x,i)}</td></tr>`).join('')}</tbody></table></div></div>`
+  :`<div class="ph-grid">${rows.map((x,i)=>`<div class="card ph-card"><img src="${esc(x.p.data||'')}" alt="${esc(x.o.code||'')}" loading="lazy" data-phz="${i}"><div class="ph-info"><b>${esc(x.o.code||'—')}</b>${badge(x)}<div class="clip" title="${esc(x.o.model||'')}">${esc(x.o.model||'')}</div><div class="clip note" title="${esc(x.o.problem||'')}">${esc(x.o.problem||'')}</div><small class="note">${fmtDate(x.o.date)} · ${esc(t('weekOfMonth',{n:weekOfMonth(x.o.date)}))}</small>${act(x,i)}</div></div>`).join('')}</div>`}
+  ${pages>1?`<div class="pager"><button class="btn btn-sm" id="phP" ${f.page<=1?'disabled':''}>‹</button><span class="note">${f.page} / ${pages}</span><button class="btn btn-sm" id="phN" ${f.page>=pages?'disabled':''}>›</button></div>`:''}`;
   const set=(k,v)=>{f[k]=v;f.page=1;if(k==='ym'&&!v)f.wk=0;renderPhotos()};
   $$('[data-ph]').forEach(s=>s.onchange=()=>set(s.dataset.ph,s.dataset.ph==='wk'?+s.value:s.value));
+  $$('[data-phview]').forEach(b=>b.onclick=()=>{f.view=b.dataset.phview;renderPhotos()});
   let tm;$('#phQ').oninput=e=>{clearTimeout(tm);tm=setTimeout(()=>{set('q',e.target.value);const i=$('#phQ');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)};
-  $('#phClear').onclick=()=>{ui.ph=null;renderPhotos()};
+  $('#phClear').onclick=()=>{const v=f.view;ui.ph=null;renderPhotos();ui.ph.view=v};
+  if($('#phImp'))$('#phImp').onclick=photoImport;
   $$('[data-phz]').forEach(m=>m.onclick=()=>lightbox(rows[+m.dataset.phz].p.data));$$('[data-phv]').forEach(b=>b.onclick=()=>showDetail(b.dataset.phv));
+  $$('[data-phdel]').forEach(b=>b.onclick=async()=>{if(!await askYes(t('phDelAsk')))return;state.photoLib=libList().filter(x=>x.id!==b.dataset.phdel);await persist();toast(t('deletedMsg'));renderPhotos()});
   if($('#phP')){$('#phP').onclick=()=>{f.page--;renderPhotos()};$('#phN').onclick=()=>{f.page++;renderPhotos()}}}
+/* Importar várias fotos: todas ficam no tamanho padrão (1280 px, JPEG) com data, código, modelo e problema */
+function photoImport(){const L=[],dl=(id,vals)=>`<datalist id="${id}">${[...new Set(vals.filter(Boolean))].sort().map(v=>`<option value="${esc(v)}">`).join('')}</datalist>`;
+  const prods=state.products.filter(p=>p.active!==false),guess=file=>{const m=/(20\d{2})[-_]?(\d{2})[-_]?(\d{2})/.exec(file.name);if(m&&+m[2]>=1&&+m[2]<=12&&+m[3]>=1&&+m[3]<=31)return `${m[1]}-${m[2]}-${m[3]}`;const d=new Date(file.lastModified||Date.now());return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+  openModal(`<div class="modal-head"><h2>📥 ${esc(t('phImport'))}</h2><button class="btn btn-sm btn-ghost" data-close>✕</button></div><div class="modal-body"><p class="hint" style="margin-top:0">${esc(t('phImpHelp'))}</p>
+   <label class="btn btn-primary"><input type="file" id="piFiles" accept="image/*" multiple hidden>📂 ${esc(t('phImpPick'))}</label>
+   <div id="piAll" class="ph-filters" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:12px 0;display:none"><div class="field" style="margin:0"><label>${esc(t('date'))}</label><input type="date" id="piD"></div><div class="field" style="margin:0"><label>${esc(t('code'))}</label><input id="piC" list="piDlC"></div><div class="field" style="margin:0"><label>${esc(t('model'))}</label><input id="piM" list="piDlM"></div><div class="field" style="margin:0"><label>${esc(t('problem'))}</label><input id="piP" list="piDlP"></div><div style="grid-column:1/-1"><button class="btn btn-sm" id="piApply">⤵ ${esc(t('phImpApply'))}</button></div></div>
+   ${dl('piDlC',prods.map(p=>p.code))}${dl('piDlM',prods.map(p=>p.model))}${dl('piDlP',state.problems)}<div id="piList"></div></div>
+   <div class="modal-foot"><span style="flex:1"></span><button class="btn" data-close>${esc(t('cancel'))}</button><button class="btn btn-primary" id="piSave" disabled>${esc(t('phImpSave',{n:0}))}</button></div>`,true);
+  const draw=()=>{$('#piAll').style.display=L.length?'grid':'none';$('#piSave').disabled=!L.length;$('#piSave').textContent=t('phImpSave',{n:L.length});
+    $('#piList').innerHTML=L.length?`<div class="table-wrap"><table><thead><tr><th>${esc(t('phFoto'))}</th><th>${esc(t('date'))} *</th><th>${esc(t('code'))}</th><th>${esc(t('model'))}</th><th>${esc(t('problem'))} *</th><th></th></tr></thead><tbody>${L.map((x,i)=>`<tr><td><img src="${x.data}" alt="" style="width:72px;height:54px;object-fit:cover;border-radius:6px;display:block"><small class="note">${esc(x.name)}</small></td><td><input type="date" data-pi="date" data-i="${i}" value="${esc(x.date)}"></td><td><input data-pi="code" data-i="${i}" list="piDlC" value="${esc(x.code)}" style="width:130px"></td><td><input data-pi="model" data-i="${i}" list="piDlM" value="${esc(x.model)}" style="width:160px"></td><td><input data-pi="problem" data-i="${i}" list="piDlP" value="${esc(x.problem)}" style="width:170px"></td><td><button class="btn btn-sm btn-ghost" data-pirm="${i}">✕</button></td></tr>`).join('')}</tbody></table></div>`:'';
+    $$('[data-pi]').forEach(inp=>inp.oninput=()=>{const x=L[+inp.dataset.i];x[inp.dataset.pi]=inp.value;if(inp.dataset.pi==='code'){const p=prods.find(p=>normCode(p.code)===normCode(inp.value));if(p&&!x.model){x.model=p.model;const m=$(`[data-pi="model"][data-i="${inp.dataset.i}"]`);if(m)m.value=p.model}}});
+    $$('[data-pirm]').forEach(b=>b.onclick=()=>{L.splice(+b.dataset.pirm,1);draw()})};
+  $('#piFiles').onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;toast(t('phImpReading'));for(const file of fs){try{L.push({name:file.name,data:await readImage(file,1280),date:guess(file),code:'',model:'',problem:''})}catch(err){toast(file.name+' ✕',true)}}e.target.value='';draw()};
+  $('#piC').oninput=()=>{const p=prods.find(p=>normCode(p.code)===normCode($('#piC').value));if(p)$('#piM').value=p.model};
+  $('#piApply').onclick=()=>{const v={date:$('#piD').value,code:$('#piC').value.trim(),model:$('#piM').value.trim(),problem:$('#piP').value.trim()};L.forEach(x=>{for(const k in v)if(v[k])x[k]=v[k]});draw()};
+  $('#piSave').onclick=async()=>{if(L.some(x=>!x.date||!String(x.problem).trim())){toast(t('phImpNeed'),true);return}const btn=$('#piSave');btn.disabled=true;const at=new Date().toISOString();
+    L.forEach(x=>libList().push({id:uid(),date:x.date,code:normCode(x.code),model:String(x.model).trim(),problem:String(x.problem).trim(),at,by:currentUser.name,photos:[{id:uid(),kind:'lib',name:x.name,data:x.data}]}));
+    const pr=[...new Set(L.map(x=>String(x.problem).trim()))].filter(p=>p&&!state.problems.includes(p));state.problems.push(...pr);
+    await persist();closeModal();toast(t('phImpDone',{n:L.length}));const f=ui.ph||{};f.src='lib';f.page=1;ui.ph=Object.assign({q:'',ym:'',wk:0,code:'',model:'',problem:'',kind:'',view:'grid'},f);renderPhotos()}}
+/* Dashboard: dois cliques numa barra mostram as fotos daquele item no período */
+function photosModal(title,occs,libs){const items=[];occs.forEach(o=>(o.photos||[]).forEach(p=>items.push({o,p,lib:false})));(libs||[]).forEach(o=>(o.photos||[]).forEach(p=>items.push({o,p,lib:true})));items.sort((a,b)=>b.o.date.localeCompare(a.o.date));
+  openModal(`<div class="modal-head"><h2>📷 ${esc(t('dbPhotos',{k:title}))}</h2><button class="btn btn-sm btn-ghost" data-close>✕</button></div><div class="modal-body">${items.length?`<div class="ph-grid">${items.slice(0,120).map((x,i)=>`<div class="card ph-card"><img src="${esc(x.p.data||'')}" alt="" loading="lazy" data-dbz="${i}"><div class="ph-info"><b>${esc(x.o.code||'—')}</b>${x.lib?`<span class="badge blue">${esc(t('phLib'))}</span>`:`<span class="badge" style="background:#dc2626;color:#fff">${fmtNum(x.o.qty)} NG</span>`}<div class="clip note">${esc(x.o.problem||'')}</div><small class="note">${fmtDate(x.o.date)}</small>${x.lib?'':`<button class="btn btn-sm" data-dbv="${x.o.id}">${esc(t('phOpen'))}</button>`}</div></div>`).join('')}</div>`:`<div class="empty">${esc(t('dbNoPhotos'))}</div>`}</div>`,true);
+  $$('[data-dbz]').forEach(m=>m.onclick=()=>lightbox(items[+m.dataset.dbz].p.data));$$('[data-dbv]').forEach(b=>b.onclick=()=>{closeModal();showDetail(b.dataset.dbv)})}
 /* Relatório do resultado pesquisado, pronto para imprimir ou salvar em PDF */
 function historyReport(list){const h=ui.hist,l=list.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.seq-b.seq),a=agg(l),now=new Date();
   const filt=[h.origin!=='all'?t('originType')+': '+originLabel(h.origin):'',h.client?t('clientOrigin')+': '+h.client:'',h.problem?t('problem')+': '+h.problem:'',h.resp?t('costResp')+': '+respLabel(h.resp):'',h.q?t('searchTerm')+': "'+h.q+'"':''].filter(Boolean);
@@ -841,6 +883,7 @@ function exportTables(photoName){const O=state.occurrences.slice().sort((a,b)=>a
   add(t('exMonths'),[[t('periodMonth'),0,14],[t('kpiOcc'),N,12],[t('kpiNg'),N,12],[t('totalCost'),M,14],[t('kNoCost'),N,12],[t('status'),0,14]],ms.map(k=>{const l=O.filter(o=>o.date.slice(0,7)===k);return [k,l.length,sum(l,'qty'),round2(sum(l,'totalCost')),l.filter(o=>!hasCost(o)).length,monthClosed(k+'-01')?t('mClosed'):t('mOpen')]}));
   const rank=(name,head,fn)=>add(name,[[head,0,34],[t('kpiOcc'),N,12],[t('kpiNg'),N,12],[t('totalCost'),M,14]],groupBy(O,fn).sort((a,b)=>b.ng-a.ng).map(g=>[g.key||'—',g.occ,g.ng,round2(g.cost)]));
   rank(t('exByModel'),t('model'),o=>o.model);rank(t('exByClient'),t('clientOrigin'),o=>o.client);rank(t('exByProblem'),t('problem'),o=>o.problem);rank(t('exByResp'),t('costResp'),o=>respLabel(o.costResp));
+  add(t('exLib'),[[t('date'),D,12],[t('code'),0,18],[t('model'),0,30],[t('problem'),0,30],[t('createdBy'),0,20],[t('photos')+' ('+t('exFiles')+')',0,40]],libList().slice().sort((a,b)=>a.date.localeCompare(b.date)).map(o=>[o.date,o.code||'',o.model||'',o.problem||'',o.by||'',photoName?(o.photos||[]).map(p=>'fotos/biblioteca/'+o.date+'-'+p.id+'.'+photoExt(p)).join(' | '):'']));
   add(t('authLog'),[[t('date'),0,20],[t('authWho'),0,22],[t('authWhat'),0,28],[t('periodMonth'),0,12],[t('authDetail'),0,50]],state.authLog.map(e=>[new Date(e.at).toLocaleString(LANG),e.user,authLogText(e),e.per||'',[e.note||''].concat((e.changes||[]).map(c=>t(FLD[c.f]||c.f)+': '+diffVal(c.f,c.a)+' → '+diffVal(c.f,c.b))).filter(Boolean).join(' | ')]));
   return T}
 function tablesXlsx(T){const names=new Set(),clean=n=>{let b=String(n).replace(/[:\\\/?*\[\]]/g,' ').slice(0,28).trim(),x=b,i=2;while(names.has(x.toLowerCase()))x=b+' '+i++;names.add(x.toLowerCase());return x};
@@ -860,6 +903,7 @@ async function exportAs(k){const stamp=todayISO();if(k!=='dash'&&needLoad('')){t
     T.forEach(x=>files.push(['csv/'+fileSafe(x.name)+'.csv',csvOf(x)]));
     const s=ONLINE?await cloudBackupState():state;files.push(['backup/segregados-backup.json',JSON.stringify({app:'segregados-prototipo',exportedAt:new Date().toISOString(),state:s},null,1)]);
     let fail=0;for(const o of state.occurrences)for(const p of o.photos||[]){try{files.push([nm(o,p),await photoBytes(p)])}catch(e){fail++}}
+    for(const o of libList())for(const p of o.photos||[]){try{files.push(['fotos/biblioteca/'+o.date+'-'+p.id+'.'+photoExt(p),await photoBytes(p)])}catch(e){fail++}}
     files.push(['LEIA-ME.txt',t('exReadme')]);download(new Blob([zipStore(files)],{type:'application/zip'}),'segregados-completo-'+stamp+'.zip');if(fail)toast(t('exPhotoFail',{n:fail}),true)
   }catch(e){console.warn(e);toast(t('importErr'),true)}}
 async function exportBackup(){const btn=$('#bExp');if(btn)btn.disabled=true;toast(t('dataBkWait'));try{await ensureFrom('')}catch(e){toast(t('cloudLoadErr'),true);if(btn)btn.disabled=false;return}

@@ -217,7 +217,7 @@ function BackupSegregados($token, $dest) {
   [IO.File]::WriteAllText((Join-Path $dest 'segregados.json'), $docs.json, $Utf8)
 
   # Mesmo formato do "Exportar backup (JSON)" do sistema: pode ser importado em Dados & Backup
-  $arr = @('occurrences', 'products', 'clients', 'costs', 'costImports', 'costLog', 'closureLog', 'authLog'); $map = @('closures', 'weekDone'); $lst = @('problems', 'destinations')
+  $arr = @('occurrences', 'photoLib', 'products', 'clients', 'costs', 'costImports', 'costLog', 'closureLog', 'authLog'); $map = @('closures', 'weekDone'); $lst = @('problems', 'destinations')
   $st = [ordered]@{ app = 'segregados-prototipo'; version = 3; settings = $null; users = @([ordered]@{ id = 'u1'; username = 'admin'; password = ''; name = 'Administrador'; role = 'admin' }); reopenCodes = @() }
   foreach ($k in $arr) { $st[$k] = New-Object Collections.ArrayList }
   foreach ($k in $map) { $st[$k] = [ordered]@{} }
@@ -247,8 +247,11 @@ function BackupSegregados($token, $dest) {
   $rCu = New-Object Collections.ArrayList
   [void]$rCu.Add(@('Vigência', 'Código', 'Modelo', 'Custo unitário', 'Substituído'))
   foreach ($c in ($st.costs | Sort-Object { $_.from }, { $_.code })) { [void]$rCu.Add(@((DataBr $c.from), $c.code, $c.model, (Num $c.cost), $(if ($c.superseded) { 'Sim' } else { '' }))) }
-  $aviso = GravarXlsxSeguro 'SEGREGADOS-BACKUP' @(@{ nome = 'Ocorrências'; linhas = $rOc }, @{ nome = 'Custos'; linhas = $rCu })
-  return @{ ok = $true; res = "Segregados: $($st.occurrences.Count) ocorrências, $($st.costs.Count) preços$aviso" }
+  $rLib = New-Object Collections.ArrayList
+  [void]$rLib.Add(@('Data', 'Código', 'Modelo', 'Problema', 'Enviado por', 'Arquivo'))
+  foreach ($f in ($st.photoLib | Sort-Object { $_.date })) { foreach ($p in @($f.photos)) { [void]$rLib.Add(@((DataBr $f.date), $f.code, $f.model, $f.problem, $f.by, $(if ($p.path) { Split-Path $p.path -Leaf } else { '' }))) } }
+  $aviso = GravarXlsxSeguro 'SEGREGADOS-BACKUP' @(@{ nome = 'Ocorrências'; linhas = $rOc }, @{ nome = 'Custos'; linhas = $rCu }, @{ nome = 'Biblioteca de fotos'; linhas = $rLib })
+  return @{ ok = $true; res = "Segregados: $($st.occurrences.Count) ocorrências, $($st.costs.Count) preços, $($st.photoLib.Count) fotos na biblioteca$aviso" }
 }
 
 function DataBr($d) { if ($d -match '^(\d{4})-(\d{2})-(\d{2})') { return "$($Matches[3])/$($Matches[2])/$($Matches[1])" }; return [string]$d }

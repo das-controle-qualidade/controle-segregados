@@ -11,13 +11,13 @@ const sb=window.supabase.createClient(SB_URL,SB_KEY);
 const CLOUD={snap:new Map(),hasPass:false,people:[],session:Math.random().toString(36).slice(2),ch:null,queue:[],timer:null,ready:false,from:'',all:false,maxSeq:0,loading:null};
 /* Carregar por período: ao entrar vêm as ocorrências de 1º de janeiro do ano passado em diante; as mais antigas são buscadas quando alguma tela precisar */
 const LP_START=()=>(new Date().getFullYear()-1)+'-01-01';
-const C_ARR=['occurrences','products','clients','costs','costImports','costLog','closureLog','authLog'],C_MAP=['closures','weekDone'],C_LIST=['problems','destinations'];
+const C_ARR=['occurrences','photoLib','products','clients','costs','costImports','costLog','closureLog','authLog'],C_MAP=['closures','weekDone'],C_LIST=['problems','destinations'];
 const C_NEWEST=['costImports','costLog','closureLog','authLog'];
 const FOTO_SEG=7*24*3600;
 const sbOk=r=>{if(r&&r.error)throw r.error;return r};
 /* no banco a foto guarda só o caminho; o link temporário (assinado) existe apenas na memória */
 const occDoc=o=>Object.assign({},o,{photos:(o.photos||[]).map(p=>p.path?{id:p.id,kind:p.kind,name:p.name,path:p.path,size:p.size}:p)});
-function docOf(col,item){return col==='occurrences'?occDoc(item):item}
+function docOf(col,item){return col==='occurrences'||col==='photoLib'?occDoc(item):item}
 function toDocs(s){const m=new Map(),put=(col,id,dados)=>m.set(col+'|'+id,{col,id:String(id),dados,j:JSON.stringify(dados)});
   C_ARR.forEach(c=>(s[c]||[]).forEach(x=>{if(!x.id)x.id=uid();put(c,x.id,docOf(c,x))}));
   C_MAP.forEach(c=>Object.keys(s[c]||{}).forEach(k=>put(c,k,s[c][k])));
@@ -43,9 +43,9 @@ async function cloudEnsureFrom(d){if(CLOUD.all||(d&&d>=CLOUD.from))return;if(CLO
     if(d)CLOUD.from=d;else CLOUD.all=true;ui.usage=null})();
   try{await CLOUD.loading}finally{CLOUD.loading=null}}
 function dataBlob(d){const i=d.indexOf(','),mime=(/^data:([^;,]+)/.exec(d)||[])[1]||'image/jpeg',b=atob(d.slice(i+1)),a=new Uint8Array(b.length);for(let k=0;k<b.length;k++)a[k]=b.charCodeAt(k);return new Blob([a],{type:mime})}
-async function uploadPhotos(){for(const o of state.occurrences)for(const p of o.photos||[])if(!p.path&&/^data:image\/[^;]+;base64,/.test(p.data||'')){const bl=dataBlob(p.data),path='seg/'+o.id+'-'+p.id+'.jpg';
+async function uploadPhotos(){for(const o of state.occurrences.concat(state.photoLib||[]))for(const p of o.photos||[])if(!p.path&&/^data:image\/[^;]+;base64,/.test(p.data||'')){const bl=dataBlob(p.data),path='seg/'+o.id+'-'+p.id+'.jpg';
     sbOk(await sb.storage.from('fotos').upload(path,bl,{upsert:true,contentType:bl.type}));p.path=path;p.size=bl.size}}
-const pathsOf=m=>{const out=new Set();m.forEach(d=>{if(d.col==='occurrences')(d.dados.photos||[]).forEach(p=>{if(p.path)out.add(p.path)})});return out};
+const pathsOf=m=>{const out=new Set();m.forEach(d=>{if(d.col==='occurrences'||d.col==='photoLib')(d.dados.photos||[]).forEach(p=>{if(p.path)out.add(p.path)})});return out};
 async function cloudFlush(){await uploadPhotos();const docs=toDocs(state),up=[],del={};
   docs.forEach((d,k)=>{const old=CLOUD.snap.get(k);if(!old||old.j!==d.j)up.push({col:d.col,id:d.id,dados:d.dados,origem:CLOUD.session})});
   CLOUD.snap.forEach((d,k)=>{if(!docs.has(k))(del[d.col]=del[d.col]||[]).push(d.id)});
@@ -63,7 +63,7 @@ function cloudApply(ev){const row=ev.new&&ev.new.col?ev.new:ev.old,col=row.col,i
   else if(col==='settings'&&!del)state.settings=Object.assign({},row.dados,{requireScalePhoto:false});
   if(del)CLOUD.snap.delete(k);else{const dados=col==='settings'?(()=>{const x=Object.assign({},state.settings);delete x.authPassword;return x})():C_ARR.includes(col)?docOf(col,state[col].find(x=>String(x.id)===id)):row.dados;CLOUD.snap.set(k,{col,id,dados,j:JSON.stringify(dados)})}}
 async function cloudDrain(){const q=CLOUD.queue;CLOUD.queue=[];CLOUD.timer=null;await cloudChain;q.forEach(cloudApply);sortNewest(state);
-  await signPhotos(q.filter(e=>e.new&&e.new.col==='occurrences').map(e=>state.occurrences.find(o=>o.id===e.new.id)).filter(Boolean)).catch(()=>{});
+  await signPhotos(q.filter(e=>e.new&&(e.new.col==='occurrences'||e.new.col==='photoLib')).map(e=>(state[e.new.col]||[]).find(o=>o.id===e.new.id)).filter(Boolean)).catch(()=>{});
   const typing=route().name==='new'||!$('#modal').hidden||/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'');if(currentUser&&!typing)renderShell()}
 function cloudListen(){CLOUD.ch=sb.channel('seg_docs').on('postgres_changes',{event:'*',schema:'public',table:'seg_docs'},ev=>{if(ev.new&&ev.new.origem===CLOUD.session)return;CLOUD.queue.push(ev);if(!CLOUD.timer)CLOUD.timer=setTimeout(cloudDrain,700)}).subscribe()}
 async function cloudProfile(u){const [pf,pp]=await Promise.all([sb.from('perfis').select('nome,papel').eq('id',u.id).maybeSingle().then(sbOk),sb.from('seg_papeis').select('papel').eq('id',u.id).maybeSingle().then(sbOk)]);
@@ -71,7 +71,7 @@ async function cloudProfile(u){const [pf,pp]=await Promise.all([sb.from('perfis'
 async function cloudEnter(u){$('#loginErr').textContent=t('cloudLoading');currentUser=null;const me=await cloudProfile(u);if(me.role==='blocked'){await sb.auth.signOut();$('#loginErr').textContent=t('cloudBlocked');return}const rows=await fetchDocs();CLOUD.hasPass=!!sbOk(await sb.rpc('seg_senha_definida')).data;
   if(!rows.length&&me.role==='admin'){state=buildDemoState();state.users=[];delete state.settings.authPassword;currentUser=me;CLOUD.snap=new Map();await uploadPhotos();await cloudFlush()}
   else if(!rows.length){state=null;state=emptyState(false);state.users=[];delete state.settings.authPassword;CLOUD.snap=toDocs(state)}
-  else{state=migrate(fromDocs(rows));state.settings.requireScalePhoto=false;delete state.settings.authPassword;await signPhotos(state.occurrences);CLOUD.snap=toDocs(state)}
+  else{state=migrate(fromDocs(rows));state.settings.requireScalePhoto=false;delete state.settings.authPassword;await signPhotos(state.occurrences.concat(state.photoLib||[]));CLOUD.snap=toDocs(state)}
   currentUser=me;CLOUD.ready=true;if(!CLOUD.ch)cloudListen();$('#loginErr').textContent='';$('#lp').value='';enterApp();backupReminder()}
 async function cloudLogin(email,pass){$('#loginErr').textContent=t('cloudLoading');const r=await sb.auth.signInWithPassword({email,password:pass});if(r.error){$('#loginErr').textContent=t('loginError');return}
   try{await cloudEnter(r.data.user)}catch(e){console.warn(e);$('#loginErr').textContent=t('cloudLoadErr')}}
@@ -81,7 +81,7 @@ async function cloudInit(){$('#lu').type='email';$('#lu').autocomplete='email';$
   const {data}=await sb.auth.getSession();if(data&&data.session){try{await cloudEnter(data.session.user)}catch(e){console.warn(e);$('#loginErr').textContent=t('cloudLoadErr')}}}
 /* backup com as fotos dentro do arquivo */
 async function cloudBackupState(){const s=JSON.parse(JSON.stringify(state));delete s.settings.authPassword;s.users=[{id:'u1',username:'admin',password:'',name:'Administrador',role:'admin'}];
-  for(const o of s.occurrences)for(const p of o.photos||[])if(p.path&&p.data){try{const b=await (await fetch(p.data)).blob();p.data=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});delete p.path;delete p.size}catch(e){}}
+  for(const o of s.occurrences.concat(s.photoLib||[]))for(const p of o.photos||[])if(p.path&&p.data){try{const b=await (await fetch(p.data)).blob();p.data=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});delete p.path;delete p.size}catch(e){}}
   return s}
 /* Administração: as contas são as mesmas do QC. Remover tira o acesso só deste sistema. */
 async function peopleLoad(){const [a,b]=await Promise.all([sb.from('perfis').select('id,email,nome,papel').order('nome').then(sbOk),sb.from('seg_papeis').select('id,papel').then(sbOk)]);const m={};(b.data||[]).forEach(x=>m[x.id]=x.papel);
