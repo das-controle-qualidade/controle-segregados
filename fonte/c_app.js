@@ -730,22 +730,11 @@ function productModal(p){
 }
 
 /* ================= ADMINISTRAÇÃO (DEMONSTRATIVA) ================= */
-/* Pendências para usar de verdade: o sistema confere sozinho o que consegue; o resto o administrador marca */
-const CK=[['ck1','high',()=>!!authPass()],['ck2','high',()=>!state.occurrences.some(o=>o.demo)&&!state.products.some(p=>p.demo)],
-  ['ck3','high',()=>ONLINE?CLOUD.people.some(p=>p.role==='operator'||p.role==='viewer'):state.users.some(u=>u.role!=='admin')],
-  ['ck4','high',()=>state.costs.some(c=>!c.demo)],['ck5','high'],['ck6','high'],['ck7','med'],['ck8','med'],['ck9','med']];
-function checklistCard(){const m=state.settings.checklist||{},st=CK.map(([k,g,auto])=>({k,g,auto:!!auto,ok:auto?auto():!!m[k],by:m[k]})),done=st.filter(x=>x.ok).length,pct=Math.round(done/st.length*100);
-  const item=x=>`<li style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border)"><input type="checkbox" ${x.ok?'checked':''} ${x.auto?'disabled':''} data-ck="${x.k}" style="margin-top:3px;width:18px;height:18px;flex:none"><span style="flex:1;${x.ok?'text-decoration:line-through;opacity:.65':''}">${esc(t(x.k))}${x.auto?` <span class="badge blue">${esc(t('ckAuto'))}</span>`:x.ok&&x.by?` <small class="note">· ${esc(x.by.by)} · ${esc(new Date(x.by.at).toLocaleDateString(LANG))}</small>`:''}</span></li>`;
-  const grp=(g,l)=>`<h4 style="margin:12px 0 4px;color:${g==='high'?'#dc2626':'#d97706'}">${esc(t(l))}</h4><ul style="list-style:none;margin:0;padding:0">${st.filter(x=>x.g===g).map(item).join('')}</ul>`;
-  return `<div class="card" style="margin-bottom:16px;border-inline-start:4px solid ${done===st.length?'#10b981':'#dc2626'}"><h3>📋 ${esc(t('ckTitle'))}<span class="sp"></span><span class="badge ${done===st.length?'green':''}">${esc(t('ckDone',{n:done,t:st.length}))}</span></h3>
-   <div style="height:10px;border-radius:5px;background:var(--surface2);border:1px solid var(--border);overflow:hidden;margin:4px 0 6px"><div style="width:${pct}%;min-width:4px;height:100%;background:${pct===100?'#10b981':pct>=50?'#f59e0b':'#ef4444'}"></div></div>
-   <p class="hint" style="margin:0">${esc(t('ckHelp'))}</p>${grp('high','ckHigh')}${grp('med','ckMed')}</div>`}
-function bindChecklist(){$$('[data-ck]').forEach(c=>c.onchange=async()=>{const m=state.settings.checklist=Object.assign({},state.settings.checklist);if(c.checked)m[c.dataset.ck]={by:currentUser.name,at:new Date().toISOString()};else delete m[c.dataset.ck];await persist();renderAdmin()})}
 function renderAdmin(){
   if(currentUser.role!=='admin'){$('#view').innerHTML=`<div class="card empty">${esc(t('adminOnly'))}</div>`;return}
   const chips=(arr,key)=>`<div class="chip-list">${arr.map((v,i)=>`<span class="chip">${esc(v)}<button data-rm="${key}" data-i="${i}" aria-label="${esc(t('remove'))}">×</button></span>`).join('')}</div>`;
   $('#view').innerHTML=`
-  ${checklistCard()}${passCard()}${ONLINE?'':`<div class="card limits" style="margin-bottom:16px"><h3>${esc(t('limitsTitle'))}</h3><ul class="note">${[1,2,3,4,5].map(i=>`<li>${esc(t('limit'+i))}</li>`).join('')}</ul></div>`}
+  ${passCard()}${ONLINE?'':`<div class="card limits" style="margin-bottom:16px"><h3>${esc(t('limitsTitle'))}</h3><ul class="note">${[1,2,3,4,5].map(i=>`<li>${esc(t('limit'+i))}</li>`).join('')}</ul></div>`}
   <div class="grid g2" style="margin-bottom:16px">
    ${ONLINE?peopleCard():`<div class="card"><h3>${esc(t('users'))}</h3>
     <div class="table-wrap" style="margin-bottom:12px"><table><thead><tr><th>${esc(t('username'))}</th><th>${esc(t('name'))}</th><th>${esc(t('role'))}</th><th></th></tr></thead><tbody>
@@ -771,7 +760,7 @@ function renderAdmin(){
   <div class="card"><h3>${esc(t('dataMaint'))}</h3>
    <div class="toolbar" style="margin:0"><a class="btn btn-primary" href="#/data">💾 ${esc(t('navData'))}</a><span class="sp"></span><button class="btn" id="bRmDemo">${esc(t('removeDemo'))}</button><button class="btn" id="bDemo">${esc(t('resetDemo'))}</button><button class="btn btn-danger" id="bClear">${esc(t('clearAll'))}</button></div></div>`;
   const save=async()=>{await persist();toast(t('savedOk'));renderShell()};
-  bindPassCard();bindChecklist();
+  bindPassCard();
   if(ONLINE)bindPeople();else $('#uAdd').onsubmit=e=>{e.preventDefault();const f=e.target,u=f.username.value.trim();if(state.users.some(x=>x.username.toLowerCase()===u.toLowerCase())){toast(t('dupUser'),true);return}
     state.users.push({id:uid(),username:u,name:f.name.value.trim(),password:f.password.value,role:f.role.value});save()};
   $$('[data-upw]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.dataset.upw);passModal(u.name,'',async v=>{u.password=v;await persist();toast(t('uPassOk'))})});
