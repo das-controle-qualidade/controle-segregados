@@ -221,9 +221,19 @@ function streaks(list){const days=[...new Set(list.map(o=>o.date))].sort(),ix={}
   return Object.values(by).map(p=>{let best=null,cur=null;Object.keys(p.days).sort().forEach(d=>{const x=p.days[d];if(cur&&ix[d]===ix[cur.e]+1){cur.e=d;cur.len++;cur.n+=x.n;cur.q+=x.q}else cur={s:d,e:d,len:1,n:x.n,q:x.q};if(!best||cur.len>best.len||(cur.len===best.len&&cur.n>best.n))best=Object.assign({},cur)});return Object.assign(best,{name:p.name,total:Object.keys(p.days).length})}).sort((a,b)=>b.len-a.len||b.n-a.n||a.name.localeCompare(b.name))}
 
 /* ================= DASHBOARD ================= */
+/* Carregar por período (só online). d = data mais antiga que a tela precisa; '' = todo o histórico */
+const loadedFrom=()=>ONLINE&&!CLOUD.all?CLOUD.from:'';
+const needLoad=d=>ONLINE&&!CLOUD.all&&(!d||d<CLOUD.from);
+async function ensureFrom(d){while(needLoad(d))await cloudEnsureFrom(d)}
+const lpBox=()=>`<div class="card empty">⏳ ${esc(t('lpLoading'))}</div>`;
+function lazy(d,again){if(!needLoad(d))return false;cloudEnsureFrom(d).then(again,e=>{console.warn(e);toast(t('cloudLoadErr'),true)});return true}
+function guardFrom(d,again){if(!needLoad(d))return false;$('#view').innerHTML=lpBox();lazy(d,again);return true}
+const lpNote=()=>loadedFrom()?`<span class="note">📅 ${esc(t('lpSince',{d:fmtDate(loadedFrom())}))}</span> <button class="btn btn-sm" data-lpall>${esc(t('lpAllBtn'))}</button>`:'';
+document.addEventListener('click',e=>{if(e.target.closest('[data-lpall]')){const v=$('#view');if(v)v.innerHTML=lpBox();ensureFrom('').then(()=>{toast(t('lpAllDone'));renderShell()},er=>{console.warn(er);toast(t('cloudLoadErr'),true)})}});
 function renderDashboard(){
   if(ui.period==='range'&&(!ui.rde||!ui.rate||ui.rde>ui.rate)){ui.rate=todayISO();ui.rde=toISO(addDays(parseISO(ui.rate),-29))}
-  const r=periodRange(ui.period,ui.ref),pr=prevRange();
+  const r=periodRange(ui.period,ui.ref),pr=prevRange(),bk0=evoBuckets()[0];
+  if(guardFrom([r.s,pr.s,bk0?bk0.s:r.s].sort()[0],renderDashboard))return;
   const fit=o=>(ui.origin==='all'||o.originType===ui.origin)&&(!ui.fcode||normCode(o.code)===ui.fcode)&&(!ui.fmodel||o.model===ui.fmodel);
   const all=state.occurrences.filter(fit);
   const list=all.filter(o=>o.date>=r.s&&o.date<=r.e),plist=all.filter(o=>o.date>=pr.s&&o.date<=pr.e);
@@ -382,7 +392,7 @@ function renderForm(editId){
     if(!state.problems.some(p=>p.toLowerCase()===problem.toLowerCase())){state.problems.push(problem);added.push(problem)}
     const chg=audit&&editing?occDiff(editing,rec):[];
     if(editing)Object.assign(editing,rec);
-    else state.occurrences.push(Object.assign(rec,{id:uid(),seq:state.occurrences.reduce((m,o)=>Math.max(m,o.seq||0),0)+1,createdBy:currentUser.name,createdAt:rec.updatedAt,demo:false}));
+    else state.occurrences.push(Object.assign(rec,{id:uid(),seq:(ONLINE?CLOUD.maxSeq=Math.max(CLOUD.maxSeq,state.occurrences.reduce((m,o)=>Math.max(m,o.seq||0),0))+1:state.occurrences.reduce((m,o)=>Math.max(m,o.seq||0),0)+1),createdBy:currentUser.name,createdAt:rec.updatedAt,demo:false}));
     if(audit){const o=editing||state.occurrences[state.occurrences.length-1];authLogAdd({act:editing?'edit':'new',per:AUTH?AUTH.per:o.date.slice(0,7),seq:o.seq,changes:chg})}
     await persist();ui.draft=null;ui.formPhotos=[];toast(t('savedMsg')+(added.length?' '+t('addedToLists',{v:added.join(', ')}):''));location.hash='#/history';
   };
@@ -397,9 +407,10 @@ function histFiltered(){const h=ui.hist,q=h.q.trim().toLowerCase();
     &&(!q||[o.seq,o.code,o.model,o.client,o.problem,o.operator,o.clientDesc,o.notes,o.destination,o.createdBy,respLabel(o.costResp)].join(' ').toLowerCase().includes(q)))
    .sort((a,b)=>b.date.localeCompare(a.date)||b.seq-a.seq)}
 function histPeriodLabel(){const h=ui.hist;if(h.ym){const [y,m]=h.ym.split('-').map(Number),ml=fmtDT(new Date(Date.UTC(y,m-1,1)),{month:'long',year:'numeric'});return h.wk?t('weekOfMonth',{n:h.wk})+' · '+ml+' ('+fmtDate(h.from)+' – '+fmtDate(h.to)+')':ml}
-  if(h.from||h.to)return (h.from?fmtDate(h.from):'…')+' – '+(h.to?fmtDate(h.to):'…');return t('allPeriods')}
+  if(h.from||h.to)return (h.from?fmtDate(h.from):'…')+' – '+(h.to?fmtDate(h.to):'…');return loadedFrom()?t('lpSince',{d:fmtDate(loadedFrom())}):t('allPeriods')}
 function renderHistory(){
   const h=ui.hist;if(!h.year)h.year=+todayISO().slice(0,4);
+  if(guardFrom(h.all?'':[h.year+'-01-01',h.from||'9999'].sort()[0],renderHistory))return;
   const list=histFiltered(),per=25,pages=Math.max(1,Math.ceil(list.length/per));if(h.page>pages)h.page=pages;
   const rows=list.slice((h.page-1)*per,h.page*per);
   const clients=[...new Set(state.occurrences.map(o=>o.client))].sort(),problems=[...new Set(state.occurrences.map(o=>o.problem))].sort();
@@ -430,7 +441,7 @@ function renderHistory(){
   :`<div class="empty">${esc(t('noRecords'))}</div>`}</div>`;
   const upd=(k,v)=>{h[k]=v;h.page=1;renderHistory()};
   const setRange=(ym,wk)=>{h.ym=ym;h.wk=wk;h.page=1;if(!ym){h.from='';h.to=''}else{const [y,m]=ym.split('-').map(Number),r=wk?weekRange(y,m,wk):{s:ym+'-01',e:toISO(new Date(Date.UTC(y,m,0)))};h.from=r.s;h.to=r.e}renderHistory()};
-  $('#yPrev').onclick=()=>{h.year--;renderHistory()};$('#yNext').onclick=()=>{h.year++;renderHistory()};$('#mAll').onclick=()=>setRange('',0);
+  $('#yPrev').onclick=()=>{h.year--;renderHistory()};$('#yNext').onclick=()=>{h.year++;renderHistory()};$('#mAll').onclick=()=>{h.all=true;setRange('',0)};
   $$('[data-wdone]').forEach(b=>b.onclick=()=>setWeekDone(h.year,+h.ym.slice(5,7),+b.dataset.wdone,true));$$('[data-wundo]').forEach(b=>b.onclick=()=>setWeekDone(h.year,+h.ym.slice(5,7),+b.dataset.wundo,false));
   $$('[data-month]').forEach(b=>b.onclick=()=>setRange(b.dataset.month,0));if(h.ym)bindAuthPanel(h.ym);
   $$('[data-wk]').forEach(b=>b.onclick=e=>{if(e.target.closest('[data-launch],[data-wdone],[data-wundo]'))return;setRange(h.ym,+b.dataset.wk)});
@@ -446,6 +457,7 @@ function renderHistory(){
 /* ================= FOTOS DOS PROBLEMAS =================
    Reúne as fotos enviadas nas ocorrências; não guarda cópia, então excluir a ocorrência tira a foto daqui. */
 function renderPhotos(){const f=ui.ph||(ui.ph={q:'',ym:'',wk:0,code:'',model:'',problem:'',kind:'',page:1}),q=f.q.trim().toLowerCase(),per=48;
+  if(f.ym&&guardFrom(f.ym+'-01',renderPhotos))return;
   const wr=f.ym&&f.wk?weekRange(+f.ym.slice(0,4),+f.ym.slice(5,7),f.wk):null;
   const occ=state.occurrences.filter(o=>(!f.ym||o.date.slice(0,7)===f.ym)&&(!wr||(o.date>=wr.s&&o.date<=wr.e))&&(!f.code||normCode(o.code)===f.code)&&(!f.model||o.model===f.model)&&(!f.problem||o.problem===f.problem)&&(!q||[o.seq,o.code,o.model,o.problem,o.client].join(' ').toLowerCase().includes(q)));
   const items=[];occ.forEach(o=>(o.photos||[]).forEach(p=>{if(!f.kind||p.kind===f.kind)items.push({o,p})}));items.sort((a,b)=>b.o.date.localeCompare(a.o.date)||b.o.seq-a.o.seq);
@@ -453,7 +465,7 @@ function renderPhotos(){const f=ui.ph||(ui.ph={q:'',ym:'',wk:0,code:'',model:'',
   const opts=(vals,cur)=>[...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))).map(v=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(v)}</option>`).join('');
   const box=(l,v,s,c)=>`<div class="card kpi vivid ${c}"><div class="lbl">${esc(l)}</div><div class="val">${esc(v)}</div><div class="sub">${esc(s||'')}</div></div>`;
   const kinds={product:'photosProduct',defect:'photosDefect',scale:'photosScale'},fld=(l,h)=>`<div class="field" style="margin:0"><label>${esc(l)}</label>${h}</div>`;
-  $('#view').innerHTML=`<p class="note" style="margin:0 0 12px">${esc(t('phHelp'))}</p>
+  $('#view').innerHTML=`<p class="note" style="margin:0 0 12px">${esc(t('phHelp'))} ${f.ym?'':lpNote()}</p>
   <div class="grid g5" style="margin-bottom:16px">${box(t('phTotal'),fmtNum(items.length),'','k1')}${box(t('kpiNg'),fmtNum(sum(withP,'qty')),t('phNgSub'),'k2')}${box(t('phOcc'),fmtNum(withP.length),'','k4')}${box(t('phCodes'),fmtNum(new Set(withP.map(o=>normCode(o.code))).size),'','k5')}${box(t('phNoPhoto'),fmtNum(occ.filter(o=>!(o.photos||[]).length).length),'','k3')}</div>
   <div class="card" style="margin-bottom:16px"><h3>${esc(t('phFilter'))}<span class="sp"></span><button class="btn btn-sm" id="phClear">${esc(t('phClear'))}</button></h3><div class="ph-filters">
    ${fld(t('search'),`<input type="search" id="phQ" value="${esc(f.q)}" placeholder="${esc(t('phSearch'))}">`)}
@@ -559,7 +571,7 @@ function showDetail(id){
 }
 
 /* Produtos: atualizações de custo por mês (planilhas do RH com a cotação do dólar informada) */
-async function removeMonthCosts(k){if(!isAdmin())return;const from=k+'-01',end=toISO(new Date(Date.UTC(+k.slice(0,4),+k.slice(5,7),0)));
+async function removeMonthCosts(k){if(!isAdmin())return;const from=k+'-01',end=toISO(new Date(Date.UTC(+k.slice(0,4),+k.slice(5,7),0)));await ensureFrom(from);
   const rm=state.costs.filter(c=>c.from>=from&&c.from<=end);if(!rm.length)return;const ids=new Set(rm.map(c=>c.id)),impIds=new Set(rm.map(c=>c.importId));
   const occ=state.occurrences.filter(o=>ids.has(o.costId)),lk=occ.filter(o=>occLocked(o.date));
   if(lk.length){toast(t('rmLocked',{n:lk.length}),true);return}
@@ -668,7 +680,7 @@ async function usdCalc(){const r=+String(($('#usdRate')||{}).value||'').replace(
   await persist();toast(t('usdDone',{n}));renderProducts()}
 function dollarPanel(y,m){if(!isAdmin())return '';const k=`${y}-${pad(m)}`,cur=state.costImports.find(i=>i.kind==='dollar'&&i.from===k+'-01');
   return `<div class="card" style="margin:10px 0;border-inline-start:4px solid var(--accent)"><h3>${esc(t('dollarMonth'))} — ${esc(ymLabel(k))}</h3><div class="inline-add"><input type="number" id="dolRate" step="0.0001" min="0" value="${cur?cur.dollar:''}" placeholder="ex.: 5,80"><button class="btn btn-primary" id="dolApply" data-ym="${k}">${esc(t('dollarApply'))}</button></div><p class="hint" style="margin-top:6px">${esc(t('usdHint'))} ${esc(t('dollarOnlyMonth'))}</p></div>`}
-function dollarPreview(k){const r=+String(($('#dolRate')||{}).value||'').replace(',','.');if(!(r>0)){toast(t('costInvalid'),true);return}
+function dollarPreview(k){if(needLoad(k+'-01')){ensureFrom(k+'-01').then(()=>dollarPreview(k));return}const r=+String(($('#dolRate')||{}).value||'').replace(',','.');if(!(r>0)){toast(t('costInvalid'),true);return}
   const from=k+'-01',end=toISO(new Date(Date.UTC(+k.slice(0,4),+k.slice(5,7),0))),act=state.products.filter(p=>p.active!==false),withU=act.filter(p=>+p.usd>0),without=act.filter(p=>!(+p.usd>0));
   const items=withU.map(p=>{const code=normCode(p.code);return {p,code,cost:round2(p.usd*r),cur:costAt(code,from)}});
   const byCode={};items.forEach(i=>byCode[i.code]=i);
@@ -708,7 +720,7 @@ function renderProducts(){
   $$('[data-pimpm]').forEach(i=>i.onchange=e=>{const f=e.target.files[0];if(f)loadCostFile(f,i.dataset.pimpm)});$$('[data-ptpl]').forEach(b=>b.onclick=downloadTemplate);$$('[data-prm]').forEach(b=>b.onclick=()=>removeMonthCosts(b.dataset.prm));
   if($('#pTpl')){$('#pTpl').onclick=downloadTemplate;$('#pImp').onchange=e=>{const f=e.target.files[0];if(f)loadCostFile(f)}}
   $$('[data-pedit]').forEach(b=>b.onclick=()=>productModal(state.products.find(p=>p.id===b.dataset.pedit)));
-  $$('[data-pdel]').forEach(b=>b.onclick=async()=>{const p=state.products.find(p=>p.id===b.dataset.pdel);if(!p||!await askYes(t('removeConfirm')))return;
+  $$('[data-pdel]').forEach(b=>b.onclick=async()=>{const p=state.products.find(p=>p.id===b.dataset.pdel);if(!p||!await askYes(t('removeConfirm')))return;await ensureFrom('');
     if(count(p.code)){p.active=false;toast(t('productInUse'))}else state.products=state.products.filter(x=>x!==p);await persist();renderProducts()});
 }
 function productModal(p){
@@ -725,6 +737,7 @@ function productModal(p){
     if(!code||!model){toast(t('requiredMsg'),true);return}
     if(state.products.some(x=>x!==p&&x.code.toLowerCase()===code.toLowerCase())){toast(t('dupCode'),true);return}
     const data={code,model,usd:f.usd.value===''?null:round4(+f.usd.value),weight:f.weight.value===''?null:+f.weight.value,active:f.active.value==='1'};
+    if(p&&p.code!==code)await ensureFrom('');
     if(p){if(p.code!==code)state.occurrences.forEach(o=>{if(o.code===p.code)o.code=code});Object.assign(p,data)}else state.products.push(Object.assign({id:uid(),demo:false},data));
     await persist();closeModal();toast(t('savedOk'));renderProducts()};
 }
@@ -771,11 +784,11 @@ function renderAdmin(){
   $$('[data-crm]').forEach(b=>b.onclick=async()=>{if(!await askYes(t('removeConfirm')))return;state.clients=state.clients.filter(c=>c.id!==b.dataset.crm);save()});
   $$('[data-add]').forEach(f=>f.onsubmit=e=>{e.preventDefault();const v=f.v.value.trim(),k=f.dataset.add;if(v&&!state[k].includes(v)){state[k].push(v);save()}});
   $$('[data-rm]').forEach(b=>b.onclick=async()=>{if(!await askYes(t('removeConfirm')))return;state[b.dataset.rm].splice(+b.dataset.i,1);save()});
-  $('#bRmDemo').onclick=async()=>{if(!await askYes(t('removeDemoConfirm')))return;const demoProblems=buildDemoProblems();
+  $('#bRmDemo').onclick=async()=>{if(!await askYes(t('removeDemoConfirm')))return;await ensureFrom('');const demoProblems=buildDemoProblems();
     state.occurrences=state.occurrences.filter(o=>!o.demo);state.products=state.products.filter(p=>!p.demo);state.clients=state.clients.filter(c=>!c.demo);
     state.problems=state.problems.filter(p=>!demoProblems.includes(p)||state.occurrences.some(o=>o.problem===p));state.costs=state.costs.filter(c=>!c.demo);state.costImports=state.costImports.filter(i=>!i.demo);save()};
-  $('#bDemo').onclick=async()=>{if(!await askYes(t('resetConfirm')))return;const users=state.users,settings=state.settings;state=buildDemoState();state.users=users;state.settings=settings;save()};
-  $('#bClear').onclick=async()=>{if(!await askYes(t('clearConfirm')))return;state=emptyState(true);save()};
+  $('#bDemo').onclick=async()=>{if(!await askYes(t('resetConfirm')))return;await ensureFrom('');const users=state.users,settings=state.settings;state=buildDemoState();state.users=users;state.settings=settings;save()};
+  $('#bClear').onclick=async()=>{if(!await askYes(t('clearConfirm')))return;await ensureFrom('');state=emptyState(true);save()};
 }
 /* ================= DADOS & BACKUP =================
    Online: limites do plano grátis do Supabase (500 MB de banco, 1 GB de fotos), divididos com o QC.
@@ -786,7 +799,7 @@ async function dataUsage(){const refs={product:0,defect:0,scale:0},inl={n:0,b:0}
   state.occurrences.forEach(o=>{(o.photos||[]).forEach(p=>{refN++;refs[p.kind]=(refs[p.kind]||0)+1;if(!p.path){const b=Math.round((p.data||'').length*.75);inl.n++;inl.b+=b;if(/^demo-/.test(p.name||'')){demo.n++;demo.b+=b}}});if((o.photos||[]).length)recPh++});
   const u={recs:state.occurrences.length,refN,refs,recPh,demo,em:new Date()};
   if(ONLINE){const r=await sb.rpc('seg_uso');if(r.error)throw r.error;const d=r.data;
-    Object.assign(u,{docs:+d.docs,dbUsed:+d.banco_bytes,dbLim:DB_LIM,segBytes:+d.seg_bytes,phSent:+d.fotos_seg_n+inl.n,phBytes:+d.fotos_seg_bytes+inl.b,phUsed:+d.storage_bytes+inl.b,phLim:PH_LIM})}
+    u.recs=+d.ocorrencias;Object.assign(u,{docs:+d.docs,dbUsed:+d.banco_bytes,dbLim:DB_LIM,segBytes:+d.seg_bytes,phSent:+d.fotos_seg_n+inl.n,phBytes:+d.fotos_seg_bytes+inl.b,phUsed:+d.storage_bytes+inl.b,phLim:PH_LIM})}
   else{let q=0,used=0;try{const e=await navigator.storage.estimate();q=e.quota||0;used=e.usage||0}catch(e){}
     const txt=new Blob([JSON.stringify(state)]).size,seg=Math.max(0,txt-inl.b);
     Object.assign(u,{docs:u.recs+state.products.length+state.costs.length,dbUsed:Math.max(used,txt),dbLim:q||DB_LIM,segBytes:seg,phSent:inl.n,phBytes:inl.b,phUsed:Math.max(used,txt),phLim:q||PH_LIM})}
@@ -801,7 +814,7 @@ function renderData(){const v=$('#view');if(!ui.usage||(ui.usage.em&&Date.now()-
   const box=(l,val,sub,c)=>`<div class="card kpi vivid ${c}"><div class="lbl">${esc(l)}</div><div class="val">${esc(val)}</div><div class="sub">${esc(sub||'')}</div></div>`;
   const bar=(l,used,lim)=>{const p=lim?used/lim*100:0,c=p<70?'#10b981':p<90?'#f59e0b':'#ef4444';return `<div style="display:flex;justify-content:space-between;font-size:13px;margin:12px 0 6px"><span>${esc(l)}: <b>${fmtB(used)}</b> / ${fmtB(lim)}</span><span class="note">${(p<.1?p.toFixed(2):p.toFixed(1)).replace('.',',')}%</span></div><div style="height:10px;border-radius:5px;background:var(--surface2);border:1px solid var(--border);overflow:hidden"><div style="width:${Math.min(100,p).toFixed(2)}%;min-width:4px;height:100%;background:${c}"></div></div>`};
   const b=state.settings.ultimoBackup,days=b&&b.em?Math.floor((Date.now()-new Date(b.em).getTime())/864e5):null,late=days===null||days>60;
-  v.innerHTML=`<div class="toolbar"><span class="note">${esc(t(ONLINE?'dataOnlineHelp':'dataOfflineHelp'))}</span><span class="sp"></span><button class="btn btn-sm" id="dRef">↻ ${esc(t('dataRefresh'))}</button></div>
+  v.innerHTML=`<div class="toolbar"><span class="note">${esc(t(ONLINE?'dataOnlineHelp':'dataOfflineHelp'))}</span>${lpNote()}<span class="sp"></span><button class="btn btn-sm" id="dRef">↻ ${esc(t('dataRefresh'))}</button></div>
   <div class="card" style="margin-bottom:16px"><h3>🗄 ${esc(t('dataDb'))}</h3><div class="grid g4">${box(t('dataRecs'),fmtNum(u.recs),t('dataDocs',{n:fmtNum(u.docs)}),'k1')}${box(t('dataUsed'),fmtB(u.dbUsed),ONLINE?t('dataSegShare',{v:fmtB(u.segBytes)}):'','k3')}${box(t('dataFree'),fmtB(dbFree),t('dataOf',{v:fmtB(u.dbLim)}),'k5')}${box(t('dataToFree'),toFree?fmtB(toFree):t('dataNone'),t('dataToFreeSub'),toFree?'k2':'k4')}</div>${bar(t('dataDb'),u.dbUsed,u.dbLim)}</div>
   <div class="card" style="margin-bottom:16px"><h3>📷 ${esc(t('dataPhotos'))}</h3><div class="grid g4">${box(t('dataSent'),fmtNum(u.phSent),fmtB(u.phBytes),'k1')}${box(t('dataInRecs'),fmtNum(u.refN),t('dataRecsWith',{n:fmtNum(u.recPh)}),'k4')}${box(t('dataAvg'),fmtB(avgPh),t('dataStd',{v:fmtB(PH_DEFAULT)}),'k3')}${box(t('dataPhFit'),fmtNum(fitPh),t('dataFree')+': '+fmtB(phFree),'k5')}</div>
    <div class="stat-row" style="margin-top:12px"><div><small>${esc(t('photosProduct'))}</small><b>${fmtNum(u.refs.product)}</b></div><div><small>${esc(t('photosDefect'))}</small><b>${fmtNum(u.refs.defect)}</b></div><div><small>${esc(t('photosScale'))}</small><b>${fmtNum(u.refs.scale)}</b></div></div>${bar(t('dataPhotos'),u.phUsed,u.phLim)}${ONLINE?`<p class="hint">${esc(t('dataShared'))}</p>`:''}</div>
@@ -837,7 +850,7 @@ const fileSafe=n=>String(n).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A
 const csvOf=x=>{const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';return '﻿'+[x.cols.map(c=>q(c[0])).join(';')].concat(x.rows.map(r=>r.map(v=>typeof v==='number'?String(v).replace('.',','):q(v)).join(';'))).join('\r\n')};
 async function photoBytes(p){const b=await (await fetch(p.data)).arrayBuffer();return new Uint8Array(b)}
 const photoExt=p=>/^data:image\/svg/.test(p.data||'')?'svg':/\.png$/i.test(p.name||'')?'png':'jpg';
-async function exportAs(k){const stamp=todayISO();
+async function exportAs(k){const stamp=todayISO();if(k!=='dash'&&needLoad('')){toast(t('lpLoading'));await ensureFrom('')}
   if(k==='dash'){location.hash='#/dashboard';setTimeout(()=>window.print(),700);return}
   if(k==='pdf'){const keep=ui.hist;ui.hist={q:'',from:'',to:'',origin:'all',client:'',problem:'',resp:'',page:1,year:0,ym:'',wk:0};try{historyReport(state.occurrences.slice())}finally{ui.hist=keep}return}
   toast(t('dataBkWait'));try{
@@ -849,10 +862,10 @@ async function exportAs(k){const stamp=todayISO();
     let fail=0;for(const o of state.occurrences)for(const p of o.photos||[]){try{files.push([nm(o,p),await photoBytes(p)])}catch(e){fail++}}
     files.push(['LEIA-ME.txt',t('exReadme')]);download(new Blob([zipStore(files)],{type:'application/zip'}),'segregados-completo-'+stamp+'.zip');if(fail)toast(t('exPhotoFail',{n:fail}),true)
   }catch(e){console.warn(e);toast(t('importErr'),true)}}
-async function exportBackup(){const btn=$('#bExp');if(btn)btn.disabled=true;toast(t('dataBkWait'));
+async function exportBackup(){const btn=$('#bExp');if(btn)btn.disabled=true;toast(t('dataBkWait'));try{await ensureFrom('')}catch(e){toast(t('cloudLoadErr'),true);if(btn)btn.disabled=false;return}
   try{const s=ONLINE?await cloudBackupState():state;download(new Blob([JSON.stringify({app:'segregados-prototipo',exportedAt:new Date().toISOString(),state:s},null,1)],{type:'application/json'}),'segregados-backup-'+todayISO()+'.json');
     state.settings.ultimoBackup={em:new Date().toISOString(),por:currentUser.name};await persist();renderShell()}catch(e){console.warn(e);toast(t('importErr'),true);if(btn)btn.disabled=false}}
-async function importBackup(e){const file=e.target.files[0];if(!file)return;try{const j=JSON.parse(await file.text());const s=j.state||j;
+async function importBackup(e){const file=e.target.files[0];if(!file)return;try{await ensureFrom('');const j=JSON.parse(await file.text());const s=j.state||j;
     if(!s||!Array.isArray(s.occurrences)||!Array.isArray(s.products)||!Array.isArray(s.users)||!s.users.length)throw 0;
     if(!await askYes(t('importConfirm')))return;
     state=Object.assign(emptyState(true),s,{settings:Object.assign({company:'',currency:'BRL'},s.settings)});
@@ -1001,6 +1014,7 @@ function importStep2(ci){const sh=ci.sheets[ci.sheet];
   h+=`<p class="note" style="margin-top:8px">${esc(t('impCols'))}: ${esc(sh.cols)}${sh.title?' · '+esc(t('impTitle'))+': <b>'+esc(sh.title)+'</b>':''}. ${esc(t(sh.vigFile?'impVigFile':'impVigAsk',{d:sh.vigFile?fmtDate(sh.vigFile):''}))}</p>`;
   if(sh.vigMulti)return h+`<div class="banner">${esc(t('impVigMulti'))}: ${sh.vigMulti.map(fmtDate).join(', ')}</div></div>`;
   if(!ci.vig)return h+'</div>';
+  if(lazy(ci.vig,renderCosts))return h+lpBox()+'</div>';
   const an=analyseImport(ci),c={insert:0,update:0,same:0,conflict:0,unk:0,empty:0,change:0,closed:0};
   an.items.forEach(it=>{c[it.action]++;if(!it.known)c.unk++;if(it.value!=null){c.empty+=it.empty.length;c.change+=it.change.length;c.closed+=it.closed.length}});
   const valid=c.insert+c.update+c.same,retroDate=ci.vig<toISO(addDays(parseISO(todayISO()),-((parseISO(todayISO()).getUTCDay()+6)%7)));ci.an=an;
@@ -1019,7 +1033,7 @@ function importStep2(ci){const sh=ci.sheets[ci.sheet];
   h+=`<p class="note" style="margin-top:8px">${esc(t('impKeep'))}${c.closed?' '+esc(t('impClosed',{n:c.closed})):''}</p>${c.conflict?`<div class="banner">${esc(t('impConflicts',{n:c.conflict}))}</div>`:''}<div class="form-actions" style="margin-top:12px"><button class="btn btn-primary" data-cact="impConfirm" ${an.dupSame.length||!valid?'disabled':''}>${esc(t('impConfirm',{n:valid}))}</button></div></div>`;
   return h}
 function affTable(rows){return `<div class="table-wrap" style="max-height:260px"><table><thead><tr><th>${esc(t('idNo'))}</th><th>${esc(t('date'))}</th><th>${esc(t('code'))}</th><th class="num">${esc(t('qtyNg'))}</th><th class="num">${esc(t('oldCost'))}</th><th class="num">${esc(t('newCost'))}</th><th class="num">${esc(t('oldTotal'))}</th><th class="num">${esc(t('newTotal'))}</th></tr></thead><tbody>${rows.slice(0,300).map(({o,v})=>`<tr><td>${o.seq}</td><td>${fmtDate(o.date)}</td><td>${esc(o.code)}</td><td class="num">${fmtNum(o.qty)}</td><td class="num">${moneyOr(o.unitCost)}</td><td class="num">${fmtMoney(v)}</td><td class="num">${moneyOr(o.totalCost)}</td><td class="num">${fmtMoney(round2(o.qty*v))}</td></tr>`).join('')}</tbody></table></div>${rows.length>300?`<p class="note">${esc(t('showingN',{n:300,m:rows.length}))}</p>`:''}`}
-async function confirmImport(){const ci=ui.ci,an=ci&&ci.an,sh=ci&&ci.sheets[ci.sheet];if(!an||!isAdmin())return;
+async function confirmImport(){if(ui.ci&&ui.ci.vig&&needLoad(ui.ci.vig)){await ensureFrom(ui.ci.vig);ui.ci.an=analyseImport(ui.ci)}const ci=ui.ci,an=ci&&ci.an,sh=ci&&ci.sheets[ci.sheet];if(!an||!isAdmin())return;
   const items=an.items.filter(it=>it.value!=null),ignored=an.inval.length+an.items.length-items.length;
   if(!items.length){toast(t('impNone'),true);return}
   if(an.dupSame.length){toast(t('impDup'),true);return}
@@ -1052,7 +1066,7 @@ function costHistory(){const q=plain(ui.hq||''),by={},today=todayISO(),imps={};s
   const TP={correction:'tCorrection',recalc:'tRecalc',fill:'tFill',migration:'tMigration',superseded:'tSuperseded',removed:'tRemoved'};
   h+=`<div class="card"><h3>${esc(t('hLog'))}</h3>${state.costLog.length?`<div class="table-wrap"><table><thead><tr><th>${esc(t('date'))}</th><th>${esc(t('username'))}</th><th>${esc(t('code'))}</th><th>${esc(t('vigFrom'))}</th><th>${esc(t('type'))}</th><th class="num">${esc(t('oldCost'))}</th><th class="num">${esc(t('newCost'))}</th><th class="num">${esc(t('records'))}</th><th>${esc(t('reason'))}</th></tr></thead><tbody>${state.costLog.slice(0,500).map(x=>`<tr><td>${esc(new Date(x.at).toLocaleString(LANG))}</td><td>${esc(x.user)}</td><td>${esc(x.code)}</td><td>${x.from?fmtDate(x.from):'—'}</td><td>${esc(t(TP[x.type]||'type'))}</td><td class="num">${moneyOr(x.old)}</td><td class="num">${moneyOr(x.new)}</td><td class="num">${fmtNum(x.count||0)}</td><td style="white-space:normal">${esc(x.reason||'—')}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty">${esc(t('noRecords'))}</div>`}</div>`;
   return h}
-function fixModal(id){const c=state.costs.find(x=>x.id===id);if(!c)return;const end=nextFrom(c.code,c.from),same=state.occurrences.filter(o=>o.costId===c.id),inV=same.filter(o=>o.date>=c.from&&(!end||o.date<end)),open=inV.filter(o=>!occLocked(o.date));
+function fixModal(id){const c=state.costs.find(x=>x.id===id);if(!c)return;if(needLoad(c.from)){ensureFrom(c.from).then(()=>fixModal(id));return}const end=nextFrom(c.code,c.from),same=state.occurrences.filter(o=>o.costId===c.id),inV=same.filter(o=>o.date>=c.from&&(!end||o.date<end)),open=inV.filter(o=>!occLocked(o.date));
   openModal(`<div class="modal-head"><h2>${esc(t('hFix'))}: ${esc(c.code)}</h2><button class="btn btn-sm btn-ghost" data-close>✕</button></div><div class="modal-body"><p>${esc(c.model)} · ${esc(t('vigFrom'))} ${fmtDate(c.from)} · ${esc(t('unitCost'))} <b>${fmtMoney(c.cost)}</b></p>
    <div class="form-grid" style="grid-template-columns:1fr 2fr"><div class="field"><label>${esc(t('newCost'))} <span class="req">*</span></label><input type="number" id="fxVal" min="0" step="0.0001"></div><div class="field"><label>${esc(t('reason'))} <span class="req">*</span></label><input type="text" id="fxWhy" maxlength="300"></div></div>
    <p class="note" style="margin-top:10px">${esc(t('fixCount',{n:open.length}))}${inV.length-open.length?' '+esc(t('impClosed',{n:inV.length-open.length})):''}${same.length-inV.length?' '+esc(t('fixOutside',{n:same.length-inV.length})):''}</p>
@@ -1067,6 +1081,7 @@ function fixModal(id){const c=state.costs.find(x=>x.id===id);if(!c)return;const 
 
 /* ---------- fechamento ---------- */
 function costClosing(){const y=+todayISO().slice(0,4),cf=ui.cf||(ui.cf={cy:String(y),cm:String(+todayISO().slice(5,7))}),yr=+cf.cy,mo=+cf.cm||0,years=[];
+  if(lazy((yr-1)+'-01-01',renderCosts))return lpBox();
   const ys=new Set(state.occurrences.map(o=>+o.date.slice(0,4)));for(let i=y-3;i<=y;i++)ys.add(i);[...ys].sort().forEach(v=>years.push(v));
   let h=`<div class="card no-print" style="margin-bottom:16px"><div class="toolbar" style="margin:0"><label class="note">${esc(t('periodYear'))} <select data-c="cy">${years.map(v=>`<option ${v===yr?'selected':''}>${v}</option>`).join('')}</select></label><button class="btn btn-sm ${mo?'':'btn-primary'}" data-cmon="0">${esc(t('wholeYear'))}</button></div>${monthLegend()}<div class="monthbar" style="margin-top:8px">${Array.from({length:12},(_,i)=>`<button class="${mo===i+1?'on':''} ${monthStatus(yr,i+1)}" data-cmon="${i+1}"><b>${esc(fmtDT(new Date(Date.UTC(2000,i,1)),{month:'short'}))}${lockIcon(yr,i+1)}</b><small>${[1,2,3,4].filter(w=>weekLaunched(yr,i+1,w)).length}/4</small></button>`).join('')}</div><p class="hint">${esc(t('closeHelp'))}</p></div>`;
   const s=mo?`${yr}-${pad(mo)}-01`:`${yr}-01-01`,e=mo?toISO(new Date(Date.UTC(yr,mo,0))):`${yr}-12-31`,list=state.occurrences.filter(o=>o.date>=s&&o.date<=e),a=agg(list);
@@ -1116,6 +1131,7 @@ function costReports(){const cr=ui.cr||(ui.cr={rtype:'month',rref:todayISO(),rde
   else if(ty==='year'){s=ref.slice(0,4)+'-01-01';e=ref.slice(0,4)+'-12-31';ps=(+ref.slice(0,4)-1)+'-01-01';pe=(+ref.slice(0,4)-1)+'-12-31';gran='month';prevTxt=t('prevYear')}
   else if(ty==='range'){if(!cr.rde||!cr.rate||cr.rde>cr.rate)return h+`<div class="card empty">${esc(t('rangeAsk'))}</div>`;s=cr.rde;e=cr.rate;const n=Math.round((parseISO(e)-parseISO(s))/864e5)+1;pe=toISO(addDays(parseISO(s),-1));ps=toISO(addDays(parseISO(s),-n));gran=n<=31?'day':n<=120?'week':'month';prevTxt=t('prevRange')+' ('+fmtDate(ps)+' – '+fmtDate(pe)+')'}
   else{s=ref.slice(0,8)+'01';e=toISO(new Date(Date.UTC(+ref.slice(0,4),+ref.slice(5,7),0)));const pm=new Date(Date.UTC(+ref.slice(0,4),+ref.slice(5,7)-2,1));ps=toISO(pm);pe=toISO(addDays(parseISO(s),-1));gran='week';prevTxt=t('prevMonth')}
+  if(lazy(ps&&ps<s?ps:s,renderCosts))return h+lpBox();
   const fc=normCode(cr.rcode),fm=plain(cr.rmodel),flt=l=>l.filter(o=>(!fc||normCode(o.code)===fc)&&(!fm||plain(o.model).includes(fm))),cur=flt(state.occurrences.filter(o=>o.date>=s&&o.date<=e)),prev=flt(state.occurrences.filter(o=>o.date>=ps&&o.date<=pe));
   h+=`<p class="note" style="margin-bottom:10px">${esc(t('repRange',{a:fmtDate(s),b:fmtDate(e)}))}${fc?' · '+esc(t('code'))+' '+esc(fc):''}${fm?' · '+esc(t('model'))+' "'+esc(cr.rmodel)+'"':''}</p>`;
   h+=reportBody(cur,{s,e,gran,title:t('repTitle',{a:fmtDate(s),b:fmtDate(e)}),segTitle:t({day:'perDay',week:'perWeek',month:'perMonth'}[gran]),totTxt:t('periodTotal'),prev:agg(prev),prevTxt});
@@ -1134,7 +1150,7 @@ async function costAct(a,arg){
   else if(a==='closeM'){const R=ui.lastRep;if(!R||!canEdit())return;const yy=+arg.slice(0,4),mm=+arg.slice(5,7),miss=[1,2,3,4].filter(w=>!weekLaunched(yy,mm,w));if(miss.length&&!await askYes(t('weeksMissing',{w:miss.map(w=>t('weekOfMonth',{n:w})).join(', ')})))return;if(!await askYes(t('mCloseAsk',{m:ymLabel(arg),n:fmtNum(R.a.n),q:fmtNum(R.a.ng),c:fmtMoney(R.a.cost)})+(R.a.noCost?'\n\n'+t('noCostWarn',{n:R.a.noCost,q:R.a.ngNoCost}):'')))return;
     const at=new Date().toISOString(),tot={n:R.a.n,ng:R.a.ng,cost:R.a.cost,noCost:R.a.noCost};state.closures[arg]={status:'closed',totals:tot,by:currentUser.name,at};state.closureLog.unshift({id:uid(),per:arg,act:'close',user:currentUser.name,at,totals:tot});await persist();toast(t('savedOk'));renderCosts()}
   else if(a==='reopen'){if(!isAdmin())return;const why=await askText(t('reopenAsk'));if(why===null)return;if(!why.trim()){toast(t('reasonReq'),true);return}const at=new Date().toISOString();Object.assign(state.closures[arg],{status:'open',by:currentUser.name,at});state.closureLog.unshift({id:uid(),per:arg,act:'reopen',user:currentUser.name,at,reason:why.trim()});await persist();toast(t('savedOk'));renderCosts()}
-  else if(a==='fillRange'){const [s,e]=arg.split('|'),l=state.occurrences.filter(o=>o.date>=s&&o.date<=e&&!hasCost(o)&&!occLocked(o.date));let n=0;
+  else if(a==='fillRange'){const [s,e]=arg.split('|');await ensureFrom(s);const l=state.occurrences.filter(o=>o.date>=s&&o.date<=e&&!hasCost(o)&&!occLocked(o.date));let n=0;
     if(!await askYes(t('fillAsk',{a:fmtDate(s),b:fmtDate(e)})))return;
     l.forEach(o=>{const c=costAt(o.code,o.date);if(c){applyPrice(c,[o]);n++}});if(n)logCost({type:'fill',code:'*',from:s,count:n,reason:t('reasonFill')});await persist();toast(t('fillDone',{n}));renderCosts()}}
 

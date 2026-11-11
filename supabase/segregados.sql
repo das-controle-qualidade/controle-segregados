@@ -135,3 +135,7 @@ begin
   end if;
 end;
 $$;
+
+-- ---------- Carregar por período ----------
+-- Índice pela data da ocorrência: buscar só um período fica rápido mesmo com muitos anos de registros.
+create index if not exists seg_docs_ocorrencia_data on public.seg_docs ((dados ->> 'date')) where col = 'occurrences';

@@ -8,7 +8,9 @@
 const ONLINE=true;
 const SB_URL='https://bkbtgbygrvbyjfzdrlxi.supabase.co',SB_KEY='sb_publishable_OEzNjc6AryDINoRad9dtxA_bjlkl2NW';
 const sb=window.supabase.createClient(SB_URL,SB_KEY);
-const CLOUD={snap:new Map(),hasPass:false,people:[],session:Math.random().toString(36).slice(2),ch:null,queue:[],timer:null,ready:false};
+const CLOUD={snap:new Map(),hasPass:false,people:[],session:Math.random().toString(36).slice(2),ch:null,queue:[],timer:null,ready:false,from:'',all:false,maxSeq:0,loading:null};
+/* Carregar por período: ao entrar vêm as ocorrências de 1º de janeiro do ano passado em diante; as mais antigas são buscadas quando alguma tela precisar */
+const LP_START=()=>(new Date().getFullYear()-1)+'-01-01';
 const C_ARR=['occurrences','products','clients','costs','costImports','costLog','closureLog','authLog'],C_MAP=['closures','weekDone'],C_LIST=['problems','destinations'];
 const C_NEWEST=['costImports','costLog','closureLog','authLog'];
 const FOTO_SEG=7*24*3600;
@@ -28,7 +30,18 @@ function fromDocs(rows){const s={app:'segregados-prototipo',version:3,settings:{
 async function signPhotos(list){const ps=[];list.forEach(o=>(o.photos||[]).forEach(p=>{if(p.path)ps.push(p.path)}));const urls={};
   for(let i=0;i<ps.length;i+=500){const r=sbOk(await sb.storage.from('fotos').createSignedUrls(ps.slice(i,i+500),FOTO_SEG));(r.data||[]).forEach(x=>{if(x.signedUrl)urls[x.path]=x.signedUrl})}
   list.forEach(o=>(o.photos||[]).forEach(p=>{if(p.path)p.data=urls[p.path]||''}))}
-async function fetchDocs(){const rows=[];for(let from=0;;from+=1000){const r=sbOk(await sb.from('seg_docs').select('col,id,dados').order('col').order('id').range(from,from+999));rows.push(...(r.data||[]));if((r.data||[]).length<1000)return rows}}
+async function pageAll(mk){const rows=[];for(let f=0;;f+=1000){const r=sbOk(await mk().order('id').range(f,f+999));rows.push(...(r.data||[]));if((r.data||[]).length<1000)return rows}}
+async function fetchDocs(){CLOUD.from=LP_START();CLOUD.all=false;
+  const [other,occ,top]=await Promise.all([pageAll(()=>sb.from('seg_docs').select('col,id,dados').neq('col','occurrences')),pageAll(()=>sb.from('seg_docs').select('col,id,dados').eq('col','occurrences').gte('dados->>date',CLOUD.from)),
+    sb.from('seg_docs').select('dados').eq('col','occurrences').order('dados->seq',{ascending:false,nullsFirst:false}).limit(1).then(sbOk)]);
+  CLOUD.maxSeq=+((top.data||[])[0]||{dados:{}}).dados.seq||0;return other.concat(occ)}
+/* busca as ocorrências de d (ou todas, se d vazio) até o início do que já está carregado */
+async function cloudEnsureFrom(d){if(CLOUD.all||(d&&d>=CLOUD.from))return;if(CLOUD.loading)return CLOUD.loading;
+  CLOUD.loading=(async()=>{await cloudChain;const before=CLOUD.from,rows=await pageAll(()=>{let q=sb.from('seg_docs').select('col,id,dados').eq('col','occurrences').lt('dados->>date',before);return d?q.gte('dados->>date',d):q});
+    const have=new Set(state.occurrences.map(o=>String(o.id))),add=rows.filter(r=>!have.has(String(r.id))).map(r=>r.dados);await signPhotos(add);
+    add.forEach(o=>{state.occurrences.push(o);const dd=docOf('occurrences',o);CLOUD.snap.set('occurrences|'+o.id,{col:'occurrences',id:String(o.id),dados:dd,j:JSON.stringify(dd)})});
+    if(d)CLOUD.from=d;else CLOUD.all=true;ui.usage=null})();
+  try{await CLOUD.loading}finally{CLOUD.loading=null}}
 function dataBlob(d){const i=d.indexOf(','),mime=(/^data:([^;,]+)/.exec(d)||[])[1]||'image/jpeg',b=atob(d.slice(i+1)),a=new Uint8Array(b.length);for(let k=0;k<b.length;k++)a[k]=b.charCodeAt(k);return new Blob([a],{type:mime})}
 async function uploadPhotos(){for(const o of state.occurrences)for(const p of o.photos||[])if(!p.path&&/^data:image\/[^;]+;base64,/.test(p.data||'')){const bl=dataBlob(p.data),path='seg/'+o.id+'-'+p.id+'.jpg';
     sbOk(await sb.storage.from('fotos').upload(path,bl,{upsert:true,contentType:bl.type}));p.path=path;p.size=bl.size}}
