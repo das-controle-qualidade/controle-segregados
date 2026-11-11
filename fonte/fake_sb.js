@@ -1,0 +1,17 @@
+<script>
+/* Supabase simulado, só para teste local: guarda tabelas no localStorage */
+(function(){const K='fake_sb',load=()=>JSON.parse(localStorage.getItem(K)||'{"seg_docs":[],"seg_papeis":[],"perfis":[{"id":"a1","email":"admin@das.com","nome":"Admin Teste","papel":"admin"},{"id":"o1","email":"insp@das.com","nome":"Inspetor Teste","papel":"user"}],"files":{},"pass":""}'),save=d=>localStorage.setItem(K,JSON.stringify(d));
+window.FAKE={load,save,calls:[],listeners:[]};let session=JSON.parse(sessionStorage.getItem('fake_sess')||'null');
+function q(tab){const c={f:[],op:'select',opts:{}};const b={select(s,o){c.opts=o||{};return b},order(){return b},range(a,z){c.r=[a,z];return b},eq(k,v){c.f.push(r=>r[k]===v);return b},in(k,vs){c.f.push(r=>vs.includes(r[k]));return b},maybeSingle(){c.one=1;return b},upsert(x){c.op='up';c.x=[].concat(x);return b},delete(){c.op='del';return b},
+ then(res,rej){return Promise.resolve().then(()=>{const d=load();d[tab]=d[tab]||[];FAKE.calls.push(tab+':'+c.op+(c.x?':'+c.x.length:''));
+  if(c.op==='up'){if(tab==='seg_docs'&&session.user.email==='view@das.com')return {error:{message:'rls'}};c.x.forEach(x=>{const i=d[tab].findIndex(r=>tab==='seg_docs'?r.col===x.col&&r.id===x.id:r.id===x.id);if(i>=0)d[tab][i]=x;else d[tab].push(x)});save(d);return {data:null,error:null}}
+  let rows=d[tab].filter(r=>c.f.every(f=>f(r)));
+  if(c.op==='del'){d[tab]=d[tab].filter(r=>!rows.includes(r));save(d);return {error:null}}
+  if(c.one)return {data:rows[0]||null,error:null};if(c.r)rows=rows.slice(c.r[0],c.r[1]+1);return {data:rows,error:null}}).then(res,rej)}};return b}
+window.supabase={createClient(){return {auth:{getSession:async()=>({data:{session}}),signInWithPassword:async({email,password})=>{const d=load(),p=d.perfis.find(x=>x.email===email);if(!p||password!=='teste123')return {error:{message:'bad'}};session={user:{id:p.id,email}};sessionStorage.setItem('fake_sess',JSON.stringify(session));return {data:{user:session.user}}},signOut:async()=>{session=null;sessionStorage.removeItem('fake_sess')}},
+ from:q,rpc:async(n,a)=>{const d=load();if(n==='seg_senha_definida')return {data:!!d.pass};if(n==='seg_senha_conferir')return {data:a.p===d.pass};if(n==='seg_senha_definir'){d.pass=a.p;save(d);return {data:null}}
+  if(n==='seg_uso'){const fs=Object.values(d.files);return {data:{banco_bytes:19076787,seg_bytes:JSON.stringify(d.seg_docs).length,docs:d.seg_docs.length,ocorrencias:d.seg_docs.filter(x=>x.col==='occurrences').length,fotos_seg_n:fs.length,fotos_seg_bytes:fs.reduce((s,v)=>s+v,0),storage_bytes:9477483+fs.reduce((s,v)=>s+v,0)}}}},
+ storage:{from:()=>({upload:async(p,b)=>{const d=load();d.files[p]=b.size;save(d);return {data:{path:p}}},createSignedUrls:async ps=>({data:ps.map(p=>({path:p,signedUrl:'data:image/gif;base64,R0lGODlhAQABAAAAACw='}))}),remove:async ps=>{const d=load();ps.forEach(p=>delete d.files[p]);save(d);return {}}})},
+ functions:{invoke:async(n,{body})=>{FAKE.calls.push('fn:'+body.acao);if(body.acao==='criar'){const d=load(),id='n'+Date.now();d.perfis.push({id,email:body.email,nome:body.nome,papel:'user'});save(d);return {data:{ok:true,id}}}return {data:{ok:true}}}},
+ channel(){const ch={on(a,b,f){FAKE.listeners.push(f);return ch},subscribe(){return ch}};return ch},removeChannel:async()=>{}}}};})();
+</script>
