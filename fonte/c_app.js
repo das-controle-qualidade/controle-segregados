@@ -158,14 +158,17 @@ const ICONS={
  data:'<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
  admin:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'};
 const ROUTES={dashboard:['navDashboard',renderDashboard],new:['navNew',renderForm],history:['navHistory',renderHistory],photos:['navPhotos',renderPhotos],products:['navProducts',renderProducts],costs:['navCosts',renderCosts],data:['navData',renderData],admin:['navAdmin',renderAdmin]};
-function route(){const h=location.hash.replace(/^#\/?/,'').split('/');return {name:ROUTES[h[0]]?h[0]:'dashboard',arg:h[1]}}
+/* Líder / Analista (consulta) não vê Gestão de Custos, Dados & Backup nem Administração */
+const VIEWER_HIDE=['costs','data','admin'];
+const canSee=k=>!!currentUser&&(k!=='admin'||currentUser.role==='admin')&&(k!=='new'||canEdit())&&!(currentUser.role==='viewer'&&VIEWER_HIDE.includes(k));
+function route(){const h=location.hash.replace(/^#\/?/,'').split('/'),n=ROUTES[h[0]]?h[0]:'dashboard';return {name:currentUser&&!canSee(n)?'dashboard':n,arg:h[1]}}
 document.addEventListener('click',e=>{if(e.target.closest('[data-kgo]'))location.hash='#/history'});
 /* cor de cada indicador: ocorrências azul, peças NG vermelho, custo laranja, sem custo rosa, novos verde, demais roxo */
 const KC={kpiOcc:'k1',kLines:'k1',kCodes:'k1',kSame:'k1',kpiNg:'k2',kConflict:'k2',kInvalid:'k2',totalCost:'k3',kpiCost:'k3',kUpdate:'k3',kNoCost:'k6',kInsert:'k5',kFilled:'k5'};
 const kc=l=>KC[l]||'k4';
 function renderShell(){
   const r=route();
-  $('#nav').innerHTML=Object.keys(ROUTES).filter(k=>(k!=='admin'||currentUser.role==='admin')&&(k!=='new'||canEdit())).map(k=>`<a href="#/${k}" class="${r.name===k?'active':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${esc(t(ROUTES[k][0]))}</a>`).join('');
+  $('#nav').innerHTML=Object.keys(ROUTES).filter(canSee).map(k=>`<a href="#/${k}" class="${r.name===k?'active':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${esc(t(ROUTES[k][0]))}</a>`).join('');
   $('#whoName').textContent=currentUser.name;$('#whoRole').textContent=roleLabel(currentUser.role);
   $('#brandCompany').textContent=state.settings.company||'';
   $('#bannerText').textContent=ONLINE?t('onlineBanner'):t('offlineBanner')+(storageOK?'':' — '+t('storageError'));
